@@ -1,0 +1,29 @@
+services:
+  cardloom-mcp:
+    build: .
+    stdin_open: true
+    volumes:
+      - ./knowledge-store:/data/knowledge-store
+      - cardloom-metadata:/data/metadata
+    environment:
+      - KNOWLEDGE_STORE_PATH=/data/knowledge-store
+      - INDEX_DB_PATH=/data/metadata/index.db
+      - REVIEWER_NAME=${REVIEWER_NAME:-human-reviewer}
+
+  cardloom-web:
+    build: .
+    ports:
+      - "127.0.0.1:3334:3334"
+    volumes:
+      - ./knowledge-store:/data/knowledge-store
+      - cardloom-metadata:/data/metadata
+    environment:
+      - KNOWLEDGE_STORE_PATH=/data/knowledge-store
+      - INDEX_DB_PATH=/data/metadata/index.db
+      - REVIEWER_NAME=${REVIEWER_NAME:-human-reviewer}
+      - PORT=3334
+      - RUNNING_IN_DOCKER=true
+    command: ["node", "dist/web/server.js"]
+
+volumes:
+  cardloom-metadata:

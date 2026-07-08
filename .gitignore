@@ -1,0 +1,39 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+
+knowledge-store/
+knowledge-store-*/
+.metadata/
+*.db
+*.sqlite
+*.db-wal
+*.db-shm
+*.db-journal
+
+# Never let a full-tree archive slip a real knowledge-store past the ignore rules above.
+*.tar
+*.tar.gz
+*.zip
+
+# Internal planning/private working material. Keep public docs under docs/public/.
+docs/*
+!docs/public/
+!docs/public/**
+
+# Local agent/tooling state.
+CLAUDE.md
+.claude/
+.agent/
+.agents/
+.codex/
+_bmad/
+design-system/
+
+.DS_Store
+*.log
+*.tgz

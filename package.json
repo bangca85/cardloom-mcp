@@ -1,0 +1,76 @@
+{
+  "name": "cardloom-mcp",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Local-first MCP knowledge hub for AI agents using git-backed markdown cards.",
+  "main": "dist/index.js",
+  "scripts": {
+    "prebuild": "rm -rf dist",
+    "build": "tsc && mkdir -p dist/web && cp -r src/web/public dist/web/public",
+    "prepack": "npm run build",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "rebuild-index": "node dist/cli/rebuild-index.js",
+    "benchmark": "node dist/cli/benchmark.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "web": "tsx src/web/server.ts"
+  },
+  "keywords": [
+    "mcp",
+    "knowledge",
+    "knowledge-cards",
+    "ai-agents",
+    "local-first",
+    "docker"
+  ],
+  "author": "CardLoom contributors",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bangca85/cardloom-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bangca85/cardloom-mcp/issues"
+  },
+  "homepage": "https://github.com/bangca85/cardloom-mcp#readme",
+  "engines": {
+    "node": "^20.0.0 || ^22.0.0 || >=24.0.0"
+  },
+  "files": [
+    "dist/",
+    "bin/",
+    "Dockerfile",
+    "docker-compose.yml",
+    "docker-entrypoint.sh",
+    ".env.example",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "package.json"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "async-mutex": "^0.5.0",
+    "better-sqlite3": "^12.8.0",
+    "express": "^4.19.0",
+    "glob": "^13.0.6",
+    "gray-matter": "^4.0.3",
+    "proper-lockfile": "^4.1.2",
+    "semver": "^7.8.5",
+    "simple-git": "^3.33.0",
+    "yaml": "^2.9.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^4.17.21",
+    "@types/node": "^25.5.0",
+    "@types/proper-lockfile": "^4.1.4",
+    "@types/semver": "^7.7.1",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.9"
+  }
+}

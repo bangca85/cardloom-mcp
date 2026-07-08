@@ -1,0 +1,79 @@
+/* Markdown Content Styling inside Tailwind Theme */
+.markdown-body {
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.markdown-body p {
+  margin-bottom: 12px;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+  font-weight: 700;
+  color: #1b1b23; /* on-surface */
+  margin-top: 20px;
+  margin-bottom: 10px;
+}
+
+.markdown-body h1 { font-size: 1.5rem; }
+.markdown-body h2 { font-size: 1.3rem; }
+.markdown-body h3 { font-size: 1.1rem; }
+
+.markdown-body pre {
+  background: #1b1b23; /* Dark background for code block contrast */
+  color: #efecf8;
+  padding: 16px;
+  border-radius: 12px;
+  overflow-x: auto;
+  margin: 16px 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+}
+
+.markdown-body code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+  background: rgba(70, 72, 212, 0.06);
+  color: #4648d4;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.markdown-body pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+}
+
+.markdown-body ul, 
+.markdown-body ol {
+  margin-left: 20px;
+  margin-bottom: 12px;
+  list-style-position: outside;
+}
+
+.markdown-body ul {
+  list-style-type: disc;
+}
+
+.markdown-body ol {
+  list-style-type: decimal;
+}
+
+.markdown-body li {
+  margin-bottom: 4px;
+}
+
+.markdown-body blockquote {
+  border-left: 4px solid #4648d4; /* primary */
+  padding-left: 16px;
+  color: #464554; /* on-surface-variant */
+  font-style: italic;
+  margin: 16px 0;
+}
