@@ -332,6 +332,8 @@ app.get('/api/graph', (req, res) => {
         label: card.id,
         title: card.title,
         group: card.domain || card.type,
+        type: card.type,
+        domain: card.domain,
         status: card.status,
         trust,
         flags,

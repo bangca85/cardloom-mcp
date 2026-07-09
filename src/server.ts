@@ -73,7 +73,11 @@ export function createServer(db: Database.Database, knowledgeStorePath: string):
         applies_to: z.array(z.string()).describe('Project/target identifiers this card applies to'),
         stack: z.array(z.string()).describe('Tech stack tags this card applies to'),
         version_range: z.string().describe('Semver range this card applies to'),
-        body: z.string().describe('Card body (markdown)'),
+        body: z
+          .string()
+          .describe(
+            'Card body in GitHub-flavored Markdown. Structure it with `##` section headers (e.g. Problem / Fix / Why it matters) and put actual code or commands in fenced ```lang code blocks — reserve single backticks for short inline identifiers only. This keeps rendering consistent across the web viewer, search snippets, and get_card output.',
+          ),
         domain: z.enum(CARD_DOMAINS).optional().describe('Optional domain facet'),
         task_type: z.string().optional().describe('Optional task-type facet'),
         error_signature: z.string().optional().describe('Required (non-empty) when type is "gotcha"'),

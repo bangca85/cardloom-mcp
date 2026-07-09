@@ -53,6 +53,8 @@ Call \`save_learning_draft\` per card, no placeholders:
 - \`source_commit\`: the specific commit hash if you have one, else the current HEAD
 - \`provenance\`: exactly where this came from — file path, doc section, commit hash, or "claude-mem observation <id>"
 
+Write \`body\` in structured Markdown: \`##\` section headers (Problem / Fix / Why it matters, or whatever fits the card type), and fenced \`\`\`lang code blocks for actual code or commands — not paragraphs of inline-backticked prose. This is what renders in the web viewer and in \`get_card\` output; unstructured bodies are harder to scan later.
+
 All cards land in draft. Never call \`update_card_status\` to verify your own card.
 
 ## Step 5 — Check for duplicates and staleness before saving

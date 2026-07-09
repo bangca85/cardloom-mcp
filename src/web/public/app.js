@@ -20,6 +20,43 @@ function debounce(func, wait) {
   };
 }
 
+// Node label formatter for graph view
+function formatNodeLabel(id) {
+  let text = id;
+  const prefixes = ['decision-', 'pattern-', 'snippet-', 'gotcha-', 'playbook-'];
+  for (const p of prefixes) {
+    if (text.startsWith(p)) {
+      text = text.substring(p.length);
+      break;
+    }
+  }
+  
+  const words = text.split('-');
+  let lines = [];
+  let currentLine = '';
+  
+  for (const word of words) {
+    if ((currentLine + word).length > 20) {
+      if (currentLine) {
+        lines.push(currentLine.trim());
+      }
+      currentLine = word + ' ';
+    } else {
+      currentLine += word + ' ';
+    }
+  }
+  if (currentLine) {
+    lines.push(currentLine.trim());
+  }
+  
+  if (lines.length > 2) {
+    lines = lines.slice(0, 2);
+    lines[1] = lines[1] + '...';
+  }
+  
+  return lines.join('\n');
+}
+
 // Toast System (Tailwind Styled)
 function showToast(title, body, type = 'success') {
   const container = document.getElementById('toast-container');
@@ -433,7 +470,43 @@ async function renderGraph() {
       scaleBanner.classList.add('hidden');
     }
 
-    const nodes = data.nodes.map(n => {
+    // Client-side filtering matching sidebar search/filters
+    let filteredNodes = data.nodes;
+    
+    // 1. Filter by search input
+    const query = searchInput.value.toLowerCase().trim();
+    if (query) {
+      filteredNodes = filteredNodes.filter(n => 
+        n.id.toLowerCase().includes(query) || 
+        n.title.toLowerCase().includes(query)
+      );
+    }
+    
+    // 2. Filter by status checkboxes
+    const includeDrafts = filterDraft.checked;
+    const includeDeprecated = filterDeprecated.checked;
+    const includeVerified = filterVerified.checked;
+    
+    filteredNodes = filteredNodes.filter(n => {
+      if (n.status === 'draft') return includeDrafts;
+      if (n.status === 'deprecated') return includeDeprecated;
+      if (n.status === 'verified') return true;
+      return true;
+    });
+    
+    // 3. Filter by type dropdown
+    const type = filterType.value;
+    if (type) {
+      filteredNodes = filteredNodes.filter(n => n.type === type);
+    }
+    
+    // 4. Filter by domain dropdown
+    const domainVal = filterDomain.value;
+    if (domainVal) {
+      filteredNodes = filteredNodes.filter(n => n.domain === domainVal);
+    }
+
+    const nodes = filteredNodes.map(n => {
       // Status Color scheme (Matching redesigned light style)
       let bgColor = '#efecf8'; // surface-container
       let borderColor = '#c7c4d7'; // outline-variant
@@ -447,7 +520,7 @@ async function renderGraph() {
 
       const nodeOpt = {
         id: n.id,
-        label: n.id,
+        label: formatNodeLabel(n.id),
         shape: 'box',
         color: {
           background: bgColor,
@@ -494,9 +567,10 @@ async function renderGraph() {
       return nodeOpt;
     });
 
+    const nodeIds = new Set(nodes.map(n => n.id));
     const dataset = {
       nodes: new vis.DataSet(nodes),
-      edges: new vis.DataSet(data.edges.map(e => ({
+      edges: new vis.DataSet(data.edges.filter(e => nodeIds.has(e.from) && nodeIds.has(e.to)).map(e => ({
         ...e,
         color: '#767586' // outline variant
       })))
@@ -536,7 +610,13 @@ async function renderGraph() {
 }
 
 document.getElementById('btn-reset-graph').addEventListener('click', () => {
-  if (network) {
+  if (activeCardId) {
+    activeCardId = null;
+    renderGraph();
+    renderCardList();
+    detailWelcome.classList.remove('hidden');
+    detailCardView.classList.add('hidden');
+  } else if (network) {
     network.fit();
   }
 });
@@ -544,6 +624,9 @@ document.getElementById('btn-reset-graph').addEventListener('click', () => {
 const triggerReload = debounce(() => {
   currentPage = 1;
   loadCards();
+  if (!document.getElementById('tab-graph').classList.contains('hidden')) {
+    renderGraph();
+  }
 }, 250);
 
 searchInput.addEventListener('input', triggerReload);
