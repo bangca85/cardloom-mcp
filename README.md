@@ -39,6 +39,19 @@ reports usage outcomes.
      }
    }
    ```
+
+   **Codex CLI / Codex extension (VS Code)** (`~/.codex/config.toml`):
+
+   ```toml
+   [mcp_servers.cardloom]
+   command = "/absolute/path/to/cardloom-mcp/bin/cardloom-mcp.sh"
+   args = []
+   ```
+
+   Or via the Codex Settings UI → **MCP servers → Connect to a custom MCP** (writes to the
+   same `config.toml`): Name `cardloom`, Type `STDIO`, Command to launch =
+   `/absolute/path/to/cardloom-mcp/bin/cardloom-mcp.sh`, leave Arguments/Environment
+   variables/Working directory empty, Save.
 4. Verify: ask your client to list MCP tools. You should see exactly 5 — `search_knowledge`,
    `get_card`, `save_learning_draft`, `update_card_status`, `report_card_usage` — plus one
    resource template, `knowledge://card/{id}`, and one Prompt, `distill_project_knowledge`
@@ -124,8 +137,21 @@ If you want reliable query-before-answer and write-back-after-learning behavior 
 
 **Before answering/implementing a task touching a known domain** (auth, rate-limiting,
 third-party API contracts, infra gotchas, etc.): call `search_knowledge(query, context)` first,
-with `context` read from `.knowledge-map.yaml` (stack/versions). Don't re-derive something a
-`verified` card already answers.
+with `context` read from `.knowledge-map.yaml` at this repo's root (stack/versions).
+**If that file doesn't exist yet**, generate a draft yourself before proceeding — inspect this
+repo's manifest (package.json / pubspec.yaml / go.mod / requirements.txt, lockfiles) for the
+real stack + versions, write it in this shape, then ask the human to review before you rely on it:
+
+```yaml
+# .knowledge-map.yaml — repo root, human-reviewed after you draft it
+repo: <repo-name>
+stack:
+  - <tech>@<version>
+  - <tech>@<version>
+domain: <frontend|backend|infra|product|...>
+```
+
+Don't re-derive something a `verified` card already answers.
 
 **After using a returned card — you MUST call `report_card_usage(id, outcome)`**
 (`confirmed`/`refuted`/`neutral`). This is not optional — every search/get_card response carries
@@ -138,6 +164,7 @@ yourself.
 **Found a major mismatch between a `verified` card and current reality** (the card says A, the
 code/logs/API actually do B — a real contradiction, not a nuance): **stop, don't silently trust
 either side.** Lay out:
+
 - which card, what it currently claims (`id` + summary)
 - what you actually observed (specific file/log/response)
 - the two possible resolutions: the card is stale/wrong → deprecate it + save a new card with
@@ -146,6 +173,7 @@ either side.** Lay out:
 then ask for confirmation on which direction before calling `update_card_status` or
 `save_learning_draft(supersedes=...)`. Don't decide alone when the mismatch affects an
 architecture or security call.
+
 ```
 
 ## Ingesting an existing project
