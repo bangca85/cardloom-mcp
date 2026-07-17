@@ -53,7 +53,12 @@ Call \`save_learning_draft\` per card, no placeholders:
 - \`source_commit\`: the specific commit hash if you have one, else the current HEAD
 - \`provenance\`: exactly where this came from — file path, doc section, commit hash, or "claude-mem observation <id>"
 
-Write \`body\` in structured Markdown: \`##\` section headers (Problem / Fix / Why it matters, or whatever fits the card type), and fenced \`\`\`lang code blocks for actual code or commands — not paragraphs of inline-backticked prose. This is what renders in the web viewer and in \`get_card\` output; unstructured bodies are harder to scan later.
+Write \`body\` in structured Markdown — never one continuous block of prose. Break it into \`##\` sections; adapt names to the card type but always separate concerns, e.g.:
+- **decision**: \`## Context\` (what triggered this) → \`## Decision\` → \`## Why\` (the trade-off given up)
+- **gotcha**: \`## Symptom\` (the error as seen, verbatim if you have it) → \`## Root Cause\` → \`## Fix\`
+- **pattern** / **playbook**: \`## When to use\` → \`## Steps\` (numbered or bulleted)
+
+Each section is a short paragraph (2-4 sentences) or a bullet list — not a wall of text. Use \`> Note: ...\` blockquote lines for caveats, edge cases, or exceptions the reader must not skim past. For any technical detail (a type/interface, function signature, config shape, API/CLI call) show a real snippet in a fenced \`\`\`lang code block — do not just name it inline and describe it in prose; reserve single backticks for short identifiers with no snippet to show. This is what renders in the web viewer and in \`get_card\` output; unstructured bodies are harder to scan later.
 
 All cards land in draft. Never call \`update_card_status\` to verify your own card.
 

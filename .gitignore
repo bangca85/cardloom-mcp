@@ -37,3 +37,5 @@ design-system/
 .DS_Store
 *.log
 *.tgz
+
+graphify/*

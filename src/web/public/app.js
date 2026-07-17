@@ -101,6 +101,7 @@ const filterDraft = document.getElementById('filter-draft');
 const filterDeprecated = document.getElementById('filter-deprecated');
 const filterType = document.getElementById('filter-type');
 const filterDomain = document.getElementById('filter-domain');
+const toggleSharedStack = document.getElementById('toggle-shared-stack');
 
 const cardList = document.getElementById('card-list');
 const prevPageBtn = document.getElementById('prev-page');
@@ -451,7 +452,8 @@ btnDeprecate.addEventListener('click', async () => {
 async function renderGraph() {
   const container = document.getElementById('graph-container');
   const scaleBanner = document.getElementById('scale-banner');
-  
+  const sharedStackDegradedBanner = document.getElementById('shared-stack-degraded-banner');
+
   const params = new URLSearchParams();
   if (activeCardId) {
     params.append('focus_id', activeCardId);
@@ -459,7 +461,9 @@ async function renderGraph() {
   
   const domain = filterDomain.value;
   if (domain) params.append('domain', domain);
-  
+
+  if (toggleSharedStack.checked) params.append('include_shared_stack', 'true');
+
   try {
     const res = await fetch(`/api/graph?${params.toString()}`);
     const data = await res.json();
@@ -468,6 +472,12 @@ async function renderGraph() {
       scaleBanner.classList.remove('hidden');
     } else {
       scaleBanner.classList.add('hidden');
+    }
+
+    if (data.sharedStackDegraded) {
+      sharedStackDegradedBanner.classList.remove('hidden');
+    } else {
+      sharedStackDegradedBanner.classList.add('hidden');
     }
 
     // Client-side filtering matching sidebar search/filters
@@ -594,6 +604,7 @@ async function renderGraph() {
     };
 
     network = new vis.Network(container, dataset, options);
+    network.once('stabilizationIterationsDone', () => network.setOptions({ physics: false }));
 
     network.on('selectNode', (params) => {
       if (params.nodes.length > 0) {
@@ -635,6 +646,7 @@ filterDraft.addEventListener('change', triggerReload);
 filterDeprecated.addEventListener('change', triggerReload);
 filterType.addEventListener('change', triggerReload);
 filterDomain.addEventListener('change', triggerReload);
+toggleSharedStack.addEventListener('change', triggerReload);
 
 prevPageBtn.addEventListener('click', () => {
   if (currentPage > 1) {

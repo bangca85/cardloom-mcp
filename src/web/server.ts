@@ -6,9 +6,11 @@ import { fileURLToPath } from 'node:url';
 import matter from 'gray-matter';
 import { config } from '../config/env.js';
 import { getDatabase } from '../db/database.js';
+import { insertCardRelationsAndStacks, deleteCardRelationsAndStacks } from '../db/schema.js';
 import { reconcileIndex } from '../services/index-reconciler.js';
 import { updateCardStatus, renderCard, computeCardFlags } from '../services/card-service.js';
 import { computeTrust } from '../services/trust-service.js';
+import { computeGraph } from '../services/graph-service.js';
 import { validateCardLenient } from '../types/card-schema.js';
 import { NotFoundError, ValidationError, InvalidTransitionError } from '../types/errors.js';
 
@@ -36,7 +38,10 @@ function reconcileSingleCard(idxDb: Database.Database, id: string, storeDir: str
   if (!fs.existsSync(cardPath)) {
     const row = idxDb.prepare('SELECT id FROM cards WHERE id = ?').get(id);
     if (row) {
-      idxDb.prepare('DELETE FROM cards WHERE id = ?').run(id);
+      idxDb.transaction(() => {
+        idxDb.prepare('DELETE FROM cards WHERE id = ?').run(id);
+        deleteCardRelationsAndStacks(idxDb, id);
+      })();
     }
     return;
   }
@@ -106,7 +111,10 @@ function reconcileSingleCard(idxDb: Database.Database, id: string, storeDir: str
       file_mtime = excluded.file_mtime
   `);
 
-  insertOrReplace.run(record);
+  idxDb.transaction(() => {
+    insertOrReplace.run(record);
+    insertCardRelationsAndStacks(idxDb, id, card);
+  })();
 }
 
 // REST API: Get list of cards (List View)
@@ -241,157 +249,10 @@ app.get('/api/graph', (req, res) => {
       }
     }
 
-    // Step 1: Count total active cards
-    const countRow = db.prepare("SELECT COUNT(*) as count FROM cards WHERE status != 'deprecated'").get() as { count: number };
-    const totalCount = countRow.count;
+    const includeSharedStack = req.query['include_shared_stack'] === 'true';
 
-    let targetCards: any[] = [];
-    let isDegraded = false;
-
-    // Fallback switch if cards > 500 or explicit focus request
-    if (totalCount > 500 || focusId) {
-      let activeFocusId = focusId;
-      if (!activeFocusId) {
-        activeFocusId = (db.prepare("SELECT id FROM cards WHERE status = 'verified' LIMIT 1").get() as any)?.id || '';
-        isDegraded = totalCount > 500;
-      }
-
-      if (activeFocusId) {
-        const focusExists = db.prepare('SELECT 1 FROM cards WHERE id = ?').get(activeFocusId);
-        if (focusExists) {
-          // Recursive CTE to traverse bidirectional structural relations up to 'depth' hops
-          const cteQuery = `
-            WITH RECURSIVE graph_nodes(id, depth) AS (
-              SELECT ? as id, 0 as depth
-              UNION
-              SELECT 
-                CASE 
-                  WHEN r.source_id = gn.id THEN r.target_id 
-                  ELSE r.source_id 
-                END as id,
-                gn.depth + 1
-              FROM graph_nodes gn
-              JOIN card_relations r ON r.source_id = gn.id OR r.target_id = gn.id
-              WHERE gn.depth < ?
-            )
-            SELECT DISTINCT id FROM graph_nodes LIMIT ?
-          `;
-
-          const relatedIds = db.prepare(cteQuery).all(activeFocusId, depth, maxNodes).map((row: any) => row.id);
-
-          if (relatedIds.length > 0) {
-            const placeholders = relatedIds.map(() => '?').join(',');
-            targetCards = db.prepare(`SELECT * FROM cards WHERE id IN (${placeholders})`).all(...relatedIds);
-          }
-        }
-      }
-    } else {
-      // Full Graph Mode (fetch all verified and draft cards)
-      let sql = "SELECT * FROM cards WHERE status != 'deprecated'";
-      const params: any[] = [];
-      if (domain) {
-        sql += ' AND domain = ?';
-        params.push(domain);
-      }
-      if (stack) {
-        sql += ' AND id IN (SELECT card_id FROM card_stacks WHERE stack_name = ?)';
-        params.push(stack);
-      }
-      targetCards = db.prepare(sql).all(...params);
-    }
-
-    // Deduplicate target cards
-    const cardMap = new Map<string, any>();
-    for (const card of targetCards) {
-      cardMap.set(card.id, card);
-    }
-    const finalCards = Array.from(cardMap.values());
-
-    // Format Nodes
-    const nodes = finalCards.map((card) => {
-      const counters = db.prepare('SELECT success, failure FROM counters WHERE card_id = ?').get(card.id) as
-        | { success: number; failure: number }
-        | undefined;
-      const success = counters?.success ?? 0;
-      const failure = counters?.failure ?? 0;
-
-      const trust = computeTrust({
-        status: card.status,
-        lastVerified: card.last_verified,
-        success,
-        failure,
-      });
-
-      const flags = computeCardFlags({
-        last_verified: card.last_verified,
-        failure,
-      }, new Date());
-
-      return {
-        id: card.id,
-        label: card.id,
-        title: card.title,
-        group: card.domain || card.type,
-        type: card.type,
-        domain: card.domain,
-        status: card.status,
-        trust,
-        flags,
-      };
-    });
-
-    // Format Edges
-    const edges: any[] = [];
-    const nodeIds = new Set(nodes.map((n) => n.id));
-
-    if (nodeIds.size > 0) {
-      const placeholders = Array.from(nodeIds).map(() => '?').join(',');
-      const relationsQuery = `
-        SELECT source_id, target_id, relation_type 
-        FROM card_relations 
-        WHERE source_id IN (${placeholders}) AND target_id IN (${placeholders})
-      `;
-      const nodeIdsArray = Array.from(nodeIds);
-      const activeRelations = db.prepare(relationsQuery).all(...nodeIdsArray, ...nodeIdsArray) as Array<{
-        source_id: string;
-        target_id: string;
-        relation_type: string;
-      }>;
-
-      for (const rel of activeRelations) {
-        if (rel.relation_type === 'supersedes') {
-          edges.push({
-            from: rel.source_id,
-            to: rel.target_id,
-            arrows: 'to',
-            color: { color: '#2ec4b6' },
-            label: 'supersedes',
-            font: { align: 'top', size: 9, color: '#2ec4b6' },
-          });
-        } else if (rel.relation_type === 'conflicts_with') {
-          const [first, second] = [rel.source_id, rel.target_id].sort();
-          const edgeId = `conflict-${first}-${second}`;
-          if (!edges.some((e) => e.id === edgeId)) {
-            edges.push({
-              id: edgeId,
-              from: rel.source_id,
-              to: rel.target_id,
-              dashes: true,
-              color: { color: '#e63946' },
-              label: 'conflict',
-              font: { align: 'top', size: 9, color: '#e63946' },
-            });
-          }
-        }
-      }
-    }
-
-    res.json({
-      nodes,
-      edges,
-      isDegraded: (totalCount > 500 && !focusId) || isDegraded,
-      totalCount,
-    });
+    const result = computeGraph(db, { focusId, domain, stack, depth, maxNodes, includeSharedStack });
+    res.json(result);
   } catch (err) {
     console.error('[server] error in GET /api/graph:', err);
     res.status(500).json({ error: { message: (err as Error).message } });

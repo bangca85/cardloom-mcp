@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -27,6 +27,26 @@ last_verified: "2026-01-01T00:00:00Z"
 ---
 Body for CLI rebuild test.
 `;
+
+function cardContentFor(n: number): string {
+  return `---
+type: pattern
+scope: project
+applies_to: [api]
+stack: [node]
+version_range: ">=1.0.0"
+status: verified
+sensitivity: normal
+source_commit: abc123
+provenance: agent-observation
+title: Shrink guard test pattern ${n}
+verified_by: bradley
+verification_method: manual-review
+last_verified: "2026-01-01T00:00:00Z"
+---
+Body for shrink guard test ${n}.
+`;
+}
 
 describe('rebuildIndex CLI (story 4.2)', () => {
   let storePath: string;
@@ -114,6 +134,81 @@ describe('rebuildIndex CLI (story 4.2)', () => {
     await rebuildIndex();
 
     const dbPath = path.join(storePath, '.metadata', 'index.db');
+    const db = new Database(dbPath, { readonly: true });
+    const count = db.prepare('SELECT COUNT(*) as c FROM cards').get() as { c: number };
+    expect(count.c).toBe(1);
+    db.close();
+  });
+
+  it('logs a shrink-guard warning to stderr when the active card count drops sharply', async () => {
+    const cardsDir = path.join(storePath, 'cards');
+    fs.mkdirSync(cardsDir, { recursive: true });
+    const cardFiles: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const file = path.join(cardsDir, `pattern-shrink-test-${i}.md`);
+      fs.writeFileSync(file, cardContentFor(i));
+      cardFiles.push(file);
+    }
+
+    await rebuildIndex();
+    closeDatabase();
+
+    // Remove all but 2 cards: 2 < 0.8 * 10, should trigger the shrink-guard warning.
+    for (const file of cardFiles.slice(0, 8)) {
+      fs.rmSync(file);
+    }
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let calls: unknown[][];
+    try {
+      await rebuildIndex();
+    } finally {
+      calls = errorSpy.mock.calls.map((call) => [...call]);
+      errorSpy.mockRestore();
+    }
+
+    const warningCalls = calls.filter((call) => String(call[0]).includes('[rebuild-index] warning'));
+    expect(warningCalls.length).toBe(1);
+    expect(String(warningCalls[0][0])).toContain('active card count dropped from 10 to 2');
+  });
+
+  it('does not log a shrink-guard warning on the first-ever rebuild (no prior index.db)', async () => {
+    fs.mkdirSync(path.join(storePath, 'cards'), { recursive: true });
+    fs.writeFileSync(path.join(storePath, 'cards', 'pattern-cli-rebuild-test-pattern.md'), VALID_CARD);
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let calls: unknown[][];
+    try {
+      await rebuildIndex();
+    } finally {
+      calls = errorSpy.mock.calls.map((call) => [...call]);
+      errorSpy.mockRestore();
+    }
+
+    const warningCalls = calls.filter((call) => String(call[0]).includes('[rebuild-index] warning'));
+    expect(warningCalls.length).toBe(0);
+  });
+
+  it('does not log a shrink-guard warning when the prior index.db is corrupt, and rebuild still succeeds', async () => {
+    const dbPath = path.join(storePath, '.metadata', 'index.db');
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    fs.writeFileSync(dbPath, 'this is not a valid sqlite file');
+
+    fs.mkdirSync(path.join(storePath, 'cards'), { recursive: true });
+    fs.writeFileSync(path.join(storePath, 'cards', 'pattern-cli-rebuild-test-pattern.md'), VALID_CARD);
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let calls: unknown[][];
+    try {
+      await expect(rebuildIndex()).resolves.not.toThrow();
+    } finally {
+      calls = errorSpy.mock.calls.map((call) => [...call]);
+      errorSpy.mockRestore();
+    }
+
+    const warningCalls = calls.filter((call) => String(call[0]).includes('[rebuild-index] warning'));
+    expect(warningCalls.length).toBe(0);
+
     const db = new Database(dbPath, { readonly: true });
     const count = db.prepare('SELECT COUNT(*) as c FROM cards').get() as { c: number };
     expect(count.c).toBe(1);

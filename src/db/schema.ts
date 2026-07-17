@@ -140,6 +140,6 @@ export function insertCardRelationsAndStacks(
 }
 
 export function deleteCardRelationsAndStacks(db: Database.Database, cardId: string): void {
-  db.prepare('DELETE FROM card_relations WHERE source_id = ?').run(cardId);
+  db.prepare('DELETE FROM card_relations WHERE source_id = ? OR target_id = ?').run(cardId, cardId);
   db.prepare('DELETE FROM card_stacks WHERE card_id = ?').run(cardId);
 }

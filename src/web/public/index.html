@@ -352,12 +352,19 @@
         <!-- Graph Toolbar -->
         <div class="absolute top-4 left-6 z-50 flex flex-col md:flex-row md:items-center gap-4 bg-white/80 backdrop-blur-md px-4 py-2.5 rounded-xl border border-white/40 shadow-md">
           <button id="btn-reset-graph" class="px-4 py-1.5 rounded-lg text-white bg-primary font-bold text-[12px] hover:saturate-150 transition-all active:scale-95 shadow-md shadow-primary/10">Reset View</button>
+          <label class="text-[12px] text-on-surface-variant flex items-center gap-1.5 cursor-pointer select-none">
+            <input type="checkbox" id="toggle-shared-stack" class="accent-primary" />
+            Shared Stack
+          </label>
           <span class="text-[12px] text-on-surface-variant flex items-center gap-1">
             <span class="material-symbols-outlined text-[16px]">info</span>
             Drag and zoom to explore card connections. Click nodes to view details.
           </span>
           <div id="scale-banner" class="bg-red-500/10 border border-red-500/20 px-3 py-1 rounded text-red-800 text-[12px] hidden">
             ⚠️ Large scale (>500 cards). Activated local subgraph mode.
+          </div>
+          <div id="shared-stack-degraded-banner" class="bg-amber-500/10 border border-amber-500/20 px-3 py-1 rounded text-amber-800 text-[12px] hidden">
+            ⚠️ Shared Stack layer skipped — too many edges for this view.
           </div>
         </div>
         

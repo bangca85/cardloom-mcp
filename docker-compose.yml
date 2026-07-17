@@ -1,3 +1,5 @@
+name: cardloom-mcp
+
 services:
   cardloom-mcp:
     build: .
@@ -23,6 +25,9 @@ services:
       - REVIEWER_NAME=${REVIEWER_NAME:-human-reviewer}
       - PORT=3334
       - RUNNING_IN_DOCKER=true
+      - GRAPH_GENERIC_STACK_TAGS=${GRAPH_GENERIC_STACK_TAGS:-}
+      - MAX_SHARED_STACK_GROUP_SIZE=${MAX_SHARED_STACK_GROUP_SIZE:-50}
+      - MAX_SHARED_STACK_EDGES=${MAX_SHARED_STACK_EDGES:-5000}
     command: ["node", "dist/web/server.js"]
 
 volumes:

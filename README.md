@@ -126,13 +126,15 @@ Workflow for a brand-new repo:
 4. Point your agent/client at it so `search_knowledge` calls include `context: {stack, versions}`
    read from that file.
 
-## Enforcing usage from a consumer project's CLAUDE.md
+## Enforcing usage from a consumer project's CLAUDE.md / AGENTS.md
 
 Nothing forces the agent to call these tools — MCP tools only fire when the model decides to.
 If you want reliable query-before-answer and write-back-after-learning behavior in one of your
-*other* project repos, paste this into that repo's `CLAUDE.md`:
+*other* project repos, paste this into that repo's project-instructions file: `CLAUDE.md` for
+Claude Code, `AGENTS.md` for Codex (Codex does not read `CLAUDE.md`). If both clients touch the
+same repo, paste it into both files.
 
-```markdown
+````markdown
 ## Knowledge Hub (MCP `cardloom`) — required
 
 **Before answering/implementing a task touching a known domain** (auth, rate-limiting,
@@ -173,8 +175,7 @@ either side.** Lay out:
 then ask for confirmation on which direction before calling `update_card_status` or
 `save_learning_draft(supersedes=...)`. Don't decide alone when the mismatch affects an
 architecture or security call.
-
-```
+````
 
 ## Ingesting an existing project
 

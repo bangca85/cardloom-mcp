@@ -4,6 +4,7 @@ import os from 'node:os';
 import Database from 'better-sqlite3';
 import { initializeSchema } from '../db/schema.js';
 import { reconcileIndex } from '../services/index-reconciler.js';
+import { computeGraph } from '../services/graph-service.js';
 import { generateDummyCards } from './generate-dummy-cards.js';
 
 interface BenchmarkResult {
@@ -11,6 +12,8 @@ interface BenchmarkResult {
   reconcileTimeMs: number;
   queryTimeMs: number;
   nodeCount: number;
+  sharedStackTimeMs: number;
+  sharedStackEdgeCount: number;
 }
 
 export async function runBenchmark(): Promise<BenchmarkResult[]> {
@@ -18,13 +21,13 @@ export async function runBenchmark(): Promise<BenchmarkResult[]> {
   const results: BenchmarkResult[] = [];
 
   console.error('[benchmark] Starting knowledge graph and database benchmark...');
-  console.error('| Vault Size | Reconcile Time (ms) | Graph Query Depth-2 Time (ms) | Nodes Returned |');
-  console.error('|------------|---------------------|-------------------------------|----------------|');
+  console.error('| Vault Size | Reconcile Time (ms) | Graph Query Time (ms) | Nodes Returned | Shared Stack Time (ms) | Shared Stack Edges |');
+  console.error('|------------|---------------------|------------------------|-----------------|------------------------|--------------------|');
 
   for (const count of sizes) {
     // 1. Create temp directory
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `cardloom-mcp-bench-${count}-`));
-    
+
     try {
       // 2. Generate dummy cards
       generateDummyCards(count, tempDir);
@@ -38,46 +41,30 @@ export async function runBenchmark(): Promise<BenchmarkResult[]> {
       await reconcileIndex(db, tempDir);
       const reconcileTimeMs = Date.now() - startReconcile;
 
-      // 5. Measure Graph Query (Recursive CTE on focus_id = decision-dummy-N, depth = 2, max_nodes = 100)
-      const activeFocusId = `decision-dummy-${Math.floor(count / 2) || 1}`;
+      // 5. Measure the REAL /api/graph code path (computeGraph — same function the Express route calls).
+      // No focus_id is passed: computeGraph decides Full Graph Mode vs Target-Centered Mode itself,
+      // exactly like production does, based on totalCount > 500.
       const startQuery = Date.now();
-      
-      const cteQuery = `
-        WITH RECURSIVE graph_nodes(id, depth) AS (
-          SELECT ? as id, 0 as depth
-          UNION
-          SELECT 
-            CASE 
-              WHEN r.source_id = gn.id THEN r.target_id 
-              ELSE r.source_id 
-            END as id,
-            gn.depth + 1
-          FROM graph_nodes gn
-          JOIN card_relations r ON r.source_id = gn.id OR r.target_id = gn.id
-          WHERE gn.depth < ?
-        )
-        SELECT DISTINCT id FROM graph_nodes LIMIT ?
-      `;
-
-      const relatedIds = db.prepare(cteQuery).all(activeFocusId, 2, 100).map((row: any) => row.id);
-      
-      let nodeCount = 0;
-      if (relatedIds.length > 0) {
-        const placeholders = relatedIds.map(() => '?').join(',');
-        const targetCards = db.prepare(`SELECT * FROM cards WHERE id IN (${placeholders})`).all(...relatedIds);
-        nodeCount = targetCards.length;
-      }
-      
+      const graphResult = computeGraph(db, { depth: 2, maxNodes: 100 });
       const queryTimeMs = Date.now() - startQuery;
+      const nodeCount = graphResult.nodes.length;
+
+      // 6. Measure the same real code path with the shared_stack Derived Link enabled (Story 6.2)
+      const startSharedStack = Date.now();
+      const graphResultWithSharedStack = computeGraph(db, { depth: 2, maxNodes: 100, includeSharedStack: true });
+      const sharedStackTimeMs = Date.now() - startSharedStack;
+      const sharedStackEdgeCount = graphResultWithSharedStack.edges.filter((e) => e.label === 'shared_stack').length;
 
       results.push({
         count,
         reconcileTimeMs,
         queryTimeMs,
         nodeCount,
+        sharedStackTimeMs,
+        sharedStackEdgeCount,
       });
 
-      console.error(`| ${count.toString().padEnd(10)} | ${reconcileTimeMs.toString().padEnd(19)} | ${queryTimeMs.toString().padEnd(29)} | ${nodeCount.toString().padEnd(14)} |`);
+      console.error(`| ${count.toString().padEnd(10)} | ${reconcileTimeMs.toString().padEnd(19)} | ${queryTimeMs.toString().padEnd(22)} | ${nodeCount.toString().padEnd(14)} | ${sharedStackTimeMs.toString().padEnd(20)} | ${sharedStackEdgeCount.toString().padEnd(18)} |`);
 
       db.close();
     } finally {

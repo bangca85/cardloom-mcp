@@ -25,12 +25,21 @@ describe('Benchmark CLI Scripts Smoke Test', () => {
     }
   });
 
-  it('runBenchmark executes successfully for 100, 500, 1000, 5000 scale', async () => {
+  it('runBenchmark executes successfully for 100, 500, 1000, 5000 scale and meets NFR-1 (<1.5s) via the real computeGraph code path', async () => {
     // This intentionally exercises the public benchmark sizes, so allow a wider budget.
     const results = await runBenchmark();
     expect(results).toHaveLength(4);
     expect(results[0].count).toBe(100);
-    expect(results[0].reconcileTimeMs).toBeGreaterThanOrEqual(0);
-    expect(results[0].queryTimeMs).toBeGreaterThanOrEqual(0);
+
+    for (const result of results) {
+      expect(result.reconcileTimeMs).toBeGreaterThanOrEqual(0);
+      expect(result.queryTimeMs).toBeGreaterThanOrEqual(0);
+      expect(result.sharedStackTimeMs).toBeGreaterThanOrEqual(0);
+      expect(result.sharedStackEdgeCount).toBeGreaterThanOrEqual(0);
+      // NFR-1: Graph View render time budget — both the plain graph query and the
+      // shared_stack-enabled variant must stay under 1.5s at every benchmarked scale.
+      expect(result.queryTimeMs).toBeLessThan(1500);
+      expect(result.sharedStackTimeMs).toBeLessThan(1500);
+    }
   }, 20000);
 });

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import Database from 'better-sqlite3';
 import { lock } from 'proper-lockfile';
 import { config } from '../config/env.js';
 import { getDatabase, closeDatabase } from '../db/database.js';
@@ -32,6 +33,20 @@ export async function rebuildIndex(): Promise<void> {
   }
 
   try {
+    let previousCount: number | undefined;
+    if (fs.existsSync(dbPath)) {
+      try {
+        const previousDb = new Database(dbPath, { readonly: true });
+        try {
+          previousCount = (previousDb.prepare('SELECT COUNT(*) as c FROM cards').get() as { c: number }).c;
+        } finally {
+          previousDb.close();
+        }
+      } catch {
+        previousCount = undefined;
+      }
+    }
+
     for (const suffix of ['', '-wal', '-shm']) {
       const target = `${dbPath}${suffix}`;
       if (fs.existsSync(target)) {
@@ -46,6 +61,16 @@ export async function rebuildIndex(): Promise<void> {
     const counterRows = (db.prepare('SELECT COUNT(*) as c FROM counters').get() as { c: number }).c;
     const elapsed = Date.now() - startTime;
     console.error(`[rebuild-index] done: ${cardCount} cards, ${counterRows} counter rows (${elapsed}ms)`);
+
+    if (previousCount !== undefined && cardCount < previousCount * 0.8) {
+      console.error(
+        '[rebuild-index] warning: active card count dropped from ' +
+          previousCount +
+          ' to ' +
+          cardCount +
+          ' — check for a reconcile bug or missing files',
+      );
+    }
   } finally {
     closeDatabase();
     if (releaseLock) {

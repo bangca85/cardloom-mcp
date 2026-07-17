@@ -76,7 +76,7 @@ export function createServer(db: Database.Database, knowledgeStorePath: string):
         body: z
           .string()
           .describe(
-            'Card body in GitHub-flavored Markdown. Structure it with `##` section headers (e.g. Problem / Fix / Why it matters) and put actual code or commands in fenced ```lang code blocks — reserve single backticks for short inline identifiers only. This keeps rendering consistent across the web viewer, search snippets, and get_card output.',
+            'Card body in GitHub-flavored Markdown — never continuous prose. Break it into `##` sections (adapt names to the card type, e.g. Context/Decision/Why for a decision, or Symptom/Root Cause/Fix for a gotcha), each a short paragraph or bullet list. Use `> Note: ...` blockquote lines for caveats or exceptions worth flagging separately. For any technical detail (a type/interface, function signature, config shape, API/CLI call), include a real snippet in a fenced ```lang code block — do not just name it inline and describe it in prose; reserve single backticks for short identifiers with no snippet to show. This keeps rendering scannable across the web viewer, search snippets, and get_card output.',
           ),
         domain: z.enum(CARD_DOMAINS).optional().describe('Optional domain facet'),
         task_type: z.string().optional().describe('Optional task-type facet'),

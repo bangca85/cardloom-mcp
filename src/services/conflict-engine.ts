@@ -23,24 +23,31 @@ function buildDiffSummary(type: string, a: FacetSet, b: FacetSet): string {
 }
 
 export function checkConflict(db: Database.Database, newCard: Card, newCardId: string): void {
-  const activeRows = db
-    .prepare("SELECT id, type, scope, stack, applies_to, version_range FROM cards WHERE status IN ('draft', 'verified')")
-    .all() as ActiveCardRow[];
+  // Explicit conflicts_with can reference a card of ANY type — this lookup must stay
+  // unfiltered by type, unlike the facet-intersection loop below.
+  const activeIds = db
+    .prepare("SELECT id FROM cards WHERE status IN ('draft', 'verified')")
+    .all() as { id: string }[];
+  const activeIdSet = new Set(activeIds.map((row) => row.id));
 
   const excludedId = newCard.supersedes ?? undefined;
-  const activeById = new Map(activeRows.map((row) => [row.id, row]));
 
   for (const declaredId of newCard.conflicts_with) {
     if (declaredId === newCardId || declaredId === excludedId) continue;
-    const row = activeById.get(declaredId);
-    if (row) {
+    if (activeIdSet.has(declaredId)) {
       throw new ConflictError({
-        conflicting_card_id: row.id,
+        conflicting_card_id: declaredId,
         diff_summary: 'explicitly declared in conflicts_with',
         options: ['supersede', 'scope-split'],
       });
     }
   }
+
+  const activeRows = db
+    .prepare(
+      "SELECT id, type, scope, stack, applies_to, version_range FROM cards WHERE status IN ('draft', 'verified') AND type = @type",
+    )
+    .all({ type: newCard.type }) as ActiveCardRow[];
 
   const newFacets: FacetSet = {
     scope: newCard.scope,
@@ -51,7 +58,6 @@ export function checkConflict(db: Database.Database, newCard: Card, newCardId: s
 
   for (const row of activeRows) {
     if (row.id === newCardId || row.id === excludedId) continue;
-    if (row.type !== newCard.type) continue;
 
     const rowFacets: FacetSet = {
       scope: row.scope as FacetSet['scope'],

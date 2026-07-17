@@ -108,6 +108,24 @@ describe('checkConflict', () => {
     expect(() => checkConflict(db, newCard({ version_range: '^1.0.0' }), 'pattern-new')).not.toThrow();
   });
 
+  it('does not conflict when types differ, even with fully overlapping stack/scope/version_range', () => {
+    insertActiveCard(db, {
+      id: 'gotcha-existing',
+      type: 'gotcha',
+      scope: 'project',
+      stack: ['node'],
+      applies_to: ['api'],
+      version_range: '>=1.0.0',
+    });
+    expect(() =>
+      checkConflict(
+        db,
+        newCard({ type: 'pattern', scope: 'project', stack: ['node'], applies_to: ['api'], version_range: '>=1.0.0' }),
+        'pattern-new',
+      ),
+    ).not.toThrow();
+  });
+
   it('excludes deprecated cards from the active set', () => {
     insertActiveCard(db, { id: 'pattern-existing', status: 'deprecated' });
     expect(() => checkConflict(db, newCard(), 'pattern-new')).not.toThrow();
@@ -130,5 +148,19 @@ describe('checkConflict', () => {
 
     expect(error).toBeInstanceOf(ConflictError);
     expect((error!.details as ConflictPayload).conflicting_card_id).toBe('pattern-unrelated');
+  });
+
+  it('throws when conflicts_with references an active card of a different type', () => {
+    insertActiveCard(db, { id: 'gotcha-unrelated', type: 'gotcha', stack: ['python'] });
+
+    let error: ConflictError | undefined;
+    try {
+      checkConflict(db, newCard({ type: 'pattern', conflicts_with: ['gotcha-unrelated'] }), 'pattern-new');
+    } catch (e) {
+      error = e as ConflictError;
+    }
+
+    expect(error).toBeInstanceOf(ConflictError);
+    expect((error!.details as ConflictPayload).conflicting_card_id).toBe('gotcha-unrelated');
   });
 });
