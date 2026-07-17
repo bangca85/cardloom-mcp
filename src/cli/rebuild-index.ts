@@ -6,6 +6,11 @@ import { config } from '../config/env.js';
 import { getDatabase, closeDatabase } from '../db/database.js';
 import { reconcileIndex } from '../services/index-reconciler.js';
 
+// Shrink-guard: warn (never block) when the post-rebuild total card count drops below this
+// fraction of the pre-rebuild count — a signal of a reconcile bug or missing files, not
+// necessarily intentional bulk-deprecation (deprecating cards doesn't remove rows).
+const SHRINK_GUARD_THRESHOLD = 0.8;
+
 /**
  * Rebuilds index.db from scratch: cards/*.md + events/*.jsonl are the only source of truth
  * (AD-2). This CLI never touches the knowledge store itself — read-only w.r.t. cards/events,
@@ -62,13 +67,9 @@ export async function rebuildIndex(): Promise<void> {
     const elapsed = Date.now() - startTime;
     console.error(`[rebuild-index] done: ${cardCount} cards, ${counterRows} counter rows (${elapsed}ms)`);
 
-    if (previousCount !== undefined && cardCount < previousCount * 0.8) {
+    if (previousCount !== undefined && cardCount < previousCount * SHRINK_GUARD_THRESHOLD) {
       console.error(
-        '[rebuild-index] warning: active card count dropped from ' +
-          previousCount +
-          ' to ' +
-          cardCount +
-          ' — check for a reconcile bug or missing files',
+        `[rebuild-index] warning: total card count dropped from ${previousCount} to ${cardCount} — check for a reconcile bug or missing files`,
       );
     }
   } finally {

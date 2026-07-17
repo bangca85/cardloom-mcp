@@ -5,7 +5,6 @@ import type { Card } from '../types/card-schema.js';
 
 interface ActiveCardRow {
   id: string;
-  type: string;
   scope: string;
   stack: string;
   applies_to: string;
@@ -23,29 +22,32 @@ function buildDiffSummary(type: string, a: FacetSet, b: FacetSet): string {
 }
 
 export function checkConflict(db: Database.Database, newCard: Card, newCardId: string): void {
-  // Explicit conflicts_with can reference a card of ANY type — this lookup must stay
-  // unfiltered by type, unlike the facet-intersection loop below.
-  const activeIds = db
-    .prepare("SELECT id FROM cards WHERE status IN ('draft', 'verified')")
-    .all() as { id: string }[];
-  const activeIdSet = new Set(activeIds.map((row) => row.id));
-
   const excludedId = newCard.supersedes ?? undefined;
 
-  for (const declaredId of newCard.conflicts_with) {
-    if (declaredId === newCardId || declaredId === excludedId) continue;
-    if (activeIdSet.has(declaredId)) {
-      throw new ConflictError({
-        conflicting_card_id: declaredId,
-        diff_summary: 'explicitly declared in conflicts_with',
-        options: ['supersede', 'scope-split'],
-      });
+  // Explicit conflicts_with can reference a card of ANY type — this lookup must stay
+  // unfiltered by type, unlike the facet-intersection query below. Skip it entirely when
+  // the new card declares no explicit conflicts (the common case).
+  if (newCard.conflicts_with.length > 0) {
+    const activeIds = db
+      .prepare("SELECT id FROM cards WHERE status IN ('draft', 'verified')")
+      .all() as { id: string }[];
+    const activeIdSet = new Set(activeIds.map((row) => row.id));
+
+    for (const declaredId of newCard.conflicts_with) {
+      if (declaredId === newCardId || declaredId === excludedId) continue;
+      if (activeIdSet.has(declaredId)) {
+        throw new ConflictError({
+          conflicting_card_id: declaredId,
+          diff_summary: 'explicitly declared in conflicts_with',
+          options: ['supersede', 'scope-split'],
+        });
+      }
     }
   }
 
   const activeRows = db
     .prepare(
-      "SELECT id, type, scope, stack, applies_to, version_range FROM cards WHERE status IN ('draft', 'verified') AND type = @type",
+      "SELECT id, scope, stack, applies_to, version_range FROM cards WHERE status IN ('draft', 'verified') AND type = @type",
     )
     .all({ type: newCard.type }) as ActiveCardRow[];
 

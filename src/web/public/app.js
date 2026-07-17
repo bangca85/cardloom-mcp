@@ -604,7 +604,8 @@ async function renderGraph() {
     };
 
     network = new vis.Network(container, dataset, options);
-    network.once('stabilizationIterationsDone', () => network.setOptions({ physics: false }));
+    const stabilizingNetwork = network;
+    stabilizingNetwork.once('stabilizationIterationsDone', () => stabilizingNetwork.setOptions({ physics: false }));
 
     network.on('selectNode', (params) => {
       if (params.nodes.length > 0) {

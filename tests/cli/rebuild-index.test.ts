@@ -169,7 +169,38 @@ describe('rebuildIndex CLI (story 4.2)', () => {
 
     const warningCalls = calls.filter((call) => String(call[0]).includes('[rebuild-index] warning'));
     expect(warningCalls.length).toBe(1);
-    expect(String(warningCalls[0][0])).toContain('active card count dropped from 10 to 2');
+    expect(String(warningCalls[0][0])).toContain('total card count dropped from 10 to 2');
+  });
+
+  it('does not log a shrink-guard warning exactly at the threshold boundary (count == 80% of previous)', async () => {
+    const cardsDir = path.join(storePath, 'cards');
+    fs.mkdirSync(cardsDir, { recursive: true });
+    const cardFiles: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const file = path.join(cardsDir, `pattern-shrink-boundary-${i}.md`);
+      fs.writeFileSync(file, cardContentFor(i));
+      cardFiles.push(file);
+    }
+
+    await rebuildIndex();
+    closeDatabase();
+
+    // Remove exactly 2 of 10: 8 is NOT < 0.8 * 10 (8 < 8 is false) — must not warn.
+    for (const file of cardFiles.slice(0, 2)) {
+      fs.rmSync(file);
+    }
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let calls: unknown[][];
+    try {
+      await rebuildIndex();
+    } finally {
+      calls = errorSpy.mock.calls.map((call) => [...call]);
+      errorSpy.mockRestore();
+    }
+
+    const warningCalls = calls.filter((call) => String(call[0]).includes('[rebuild-index] warning'));
+    expect(warningCalls.length).toBe(0);
   });
 
   it('does not log a shrink-guard warning on the first-ever rebuild (no prior index.db)', async () => {
