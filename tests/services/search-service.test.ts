@@ -58,6 +58,32 @@ function insertCounters(db: Database.Database, cardId: string, usage: number, su
   );
 }
 
+/**
+ * Six cards with varied facets, ranks and trust, used by the Task 4 tests. The default-order
+ * snapshots below were recorded against the pre-Task-4 search-service (AND query, facetMatch →
+ * ftsRank → trust) and must never change while SEARCH_RANKING/SEARCH_FALLBACK stay at defaults.
+ */
+function seedSix(db: Database.Database): void {
+  insertCard(db, { id: 'pattern-s1', stack: ['node'], scope: 'project', applies_to: ['api'], title: 'Backoff loops', body: 'retry retry retry patterns with backoff' });
+  insertCard(db, { id: 'pattern-s2', stack: ['python'], scope: 'stack', title: 'Queue consumers', body: 'retry retry retry patterns patterns' });
+  insertCard(db, { id: 'decision-s3', type: 'decision', stack: ['node'], scope: 'global', title: 'Retry patterns', body: 'Decision about retry patterns and jitter.' });
+  insertCard(db, {
+    id: 'gotcha-s4',
+    type: 'gotcha',
+    stack: ['node'],
+    scope: 'project',
+    applies_to: ['src/payments/'],
+    version_range: '^18.0.0',
+    title: 'Socket resets',
+    error_signature: 'ConnectionResetError: socket hang up',
+    body: 'retry patterns when the socket resets mid request',
+  });
+  insertCard(db, { id: 'pattern-s5', stack: ['node'], scope: 'project', title: 'Note five', body: 'Generic retry patterns note.' });
+  insertCard(db, { id: 'pattern-s6', stack: ['node'], scope: 'project', title: 'Note six', body: 'Generic retry patterns note.' });
+  insertCounters(db, 'pattern-s5', 5, 5, 0);
+  insertCounters(db, 'pattern-s6', 3, 0, 1);
+}
+
 describe('searchCards', () => {
   let db: Database.Database;
 
@@ -176,5 +202,139 @@ describe('searchCards', () => {
 
     const card = results.find((r) => r.id === 'pattern-restricted-2');
     expect(card?.restricted).toBe(true);
+  });
+});
+
+describe('searchCards — tiered fallback, ranking modes, scope layers (Task 4)', () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    delete process.env['SEARCH_RANKING'];
+    delete process.env['SEARCH_FALLBACK'];
+    db = new Database(':memory:');
+    initializeSchema(db);
+    seedSix(db);
+  });
+
+  afterEach(() => {
+    delete process.env['SEARCH_RANKING'];
+    delete process.env['SEARCH_FALLBACK'];
+    db.close();
+  });
+
+  it('defaults reproduce the previous order exactly', () => {
+    // Recorded against the pre-Task-4 search-service before any src/ change (see task-4-report.md).
+    expect(searchCards(db, 'retry patterns', {}).map((r) => r.id)).toEqual([
+      'pattern-s2',
+      'decision-s3',
+      'pattern-s1',
+      'pattern-s5',
+      'pattern-s6',
+      'gotcha-s4',
+    ]);
+    expect(
+      searchCards(db, 'retry patterns', { context: { stack: ['node'], versions: { node: '^20.0.0' } } }).map((r) => r.id),
+    ).toEqual(['decision-s3', 'pattern-s1', 'pattern-s5', 'pattern-s6', 'pattern-s2', 'gotcha-s4']);
+    expect(searchCards(db, 'retry patterns', { limit: 3 }).map((r) => r.id)).toEqual([
+      'pattern-s2',
+      'decision-s3',
+      'pattern-s1',
+    ]);
+  });
+
+  it('explicit baseline/off options match the defaults', () => {
+    const ctx = { stack: ['node'], versions: { node: '^20.0.0' } };
+    const defaults = searchCards(db, 'retry patterns', { context: ctx }).map((r) => r.id);
+    const explicit = searchCards(db, 'retry patterns', { context: ctx, ranking: 'baseline', fallback: 'off' }).map((r) => r.id);
+    expect(explicit).toEqual(defaults);
+  });
+
+  it('tiered fallback finds a card the AND query misses and labels it exact_signature', () => {
+    insertCard(db, { id: 'gotcha-err42', type: 'gotcha', error_signature: 'ERR-42', title: 'Payment ERR-42' });
+    expect(searchCards(db, 'Error: ERR-42 at line 8', {})).toEqual([]);
+    const r = searchCards(db, 'Error: ERR-42 at line 8', { fallback: 'tiered' });
+    expect(r[0]).toMatchObject({ id: 'gotcha-err42', match: 'exact_signature' });
+  });
+
+  it('tiered fallback labels partial matches as related', () => {
+    const r = searchCards(db, 'zqxv7000 retry patterns in my project', { fallback: 'tiered' });
+    expect(r.length).toBeGreaterThan(0);
+    expect(r.every((x) => x.match === 'related')).toBe(true);
+  });
+
+  it('fallback off only returns AND rows, so no result is ever related', () => {
+    const r = searchCards(db, 'retry patterns', {});
+    expect(r.length).toBeGreaterThan(0);
+    expect(r.every((x) => x.match === 'all_terms' || x.match.startsWith('exact_'))).toBe(true);
+    expect(searchCards(db, 'zqxv7000 retry patterns', {})).toEqual([]);
+  });
+
+  it('tiered keeps the AND path when the AND set already fills the limit', () => {
+    insertCard(db, { id: 'pattern-or-only', title: 'Jitter', body: 'jitter only, nothing else' });
+    const r = searchCards(db, 'retry patterns jitter', { fallback: 'tiered', limit: 1 });
+    expect(r.map((x) => x.id)).toEqual(['decision-s3']);
+    expect(r[0]!.match).toBe('all_terms');
+  });
+
+  it.each(['***', 'C++', '"', '-', '   '])('punctuation-only query %j does not throw (Review Focus 3)', (q) => {
+    expect(() => searchCards(db, q, { fallback: 'tiered' })).not.toThrow();
+  });
+
+  it('x ranks this_project above other_project; y lets an exact other-project card win', () => {
+    insertCard(db, { id: 'decision-a', type: 'decision', scope: 'project', applies_to: ['proj-a'], title: 'Retry policy', body: 'retry policy body' });
+    insertCard(db, { id: 'gotcha-b', type: 'gotcha', scope: 'project', applies_to: ['proj-b'], error_signature: 'RETRY_EXHAUSTED', body: 'retry policy body' });
+    const ctx = { project: 'proj-a', stack: ['node'] };
+    expect(searchCards(db, 'RETRY_EXHAUSTED retry policy', { context: ctx, fallback: 'tiered', ranking: 'x' })[0]!.id).toBe('decision-a');
+    expect(searchCards(db, 'RETRY_EXHAUSTED retry policy', { context: ctx, fallback: 'tiered', ranking: 'y' })[0]!.id).toBe('gotcha-b');
+  });
+
+  it('x drops a drifted this_project card below shared and unknown-layer cards', () => {
+    insertCard(db, {
+      id: 'decision-drift',
+      type: 'decision',
+      stack: ['node'],
+      scope: 'project',
+      applies_to: ['proj-a'],
+      version_range: '^18.0.0',
+      title: 'Old retry patterns',
+      body: 'retry retry retry patterns patterns',
+    });
+    const ctx = { project: 'proj-a', stack: ['node'], versions: { node: '^20.0.0' } };
+    const ids = searchCards(db, 'retry patterns', { context: ctx, ranking: 'x' }).map((r) => r.id);
+    expect(ids[0]).toBe('decision-s3'); // shared + facetMatch → 1
+    expect(ids.indexOf('decision-drift')).toBeGreaterThan(ids.indexOf('pattern-s1')); // unknown → 2
+  });
+
+  it('reads ranking and fallback from config when options are absent', () => {
+    insertCard(db, { id: 'decision-a', type: 'decision', scope: 'project', applies_to: ['proj-a'], title: 'Retry policy', body: 'retry policy body' });
+    insertCard(db, { id: 'gotcha-b', type: 'gotcha', scope: 'project', applies_to: ['proj-b'], error_signature: 'RETRY_EXHAUSTED', body: 'retry policy body' });
+    const ctx = { project: 'proj-a', stack: ['node'] };
+    process.env['SEARCH_FALLBACK'] = 'tiered';
+    process.env['SEARCH_RANKING'] = 'y';
+    expect(searchCards(db, 'RETRY_EXHAUSTED retry policy', { context: ctx })[0]!.id).toBe('gotcha-b');
+    process.env['SEARCH_RANKING'] = 'x';
+    expect(searchCards(db, 'RETRY_EXHAUSTED retry policy', { context: ctx })[0]!.id).toBe('decision-a');
+  });
+
+  it('scope_layer is null without a caller project and unknown for path-only legacy cards', () => {
+    const noProject = searchCards(db, 'retry patterns', {});
+    expect(noProject.length).toBeGreaterThan(0);
+    expect(noProject.every((x) => x.scope_layer === null)).toBe(true);
+
+    const withProject = searchCards(db, 'retry patterns', { context: { project: 'acme/billing-api' } });
+    expect(withProject.find((x) => x.id === 'gotcha-s4')?.scope_layer).toBe('unknown');
+    expect(withProject.find((x) => x.id === 'decision-s3')?.scope_layer).toBe('shared');
+  });
+
+  it('excerpt is an FTS snippet of the body, falling back to preview', () => {
+    const r = searchCards(db, 'socket', {});
+    const s4 = r.find((x) => x.id === 'gotcha-s4');
+    expect(s4?.excerpt).toContain('socket');
+    expect(s4?.excerpt.length).toBeGreaterThan(0);
+
+    // Matches on the title only: the body snippet has no hit, but excerpt is never empty.
+    const titleOnly = searchCards(db, 'Queue consumers', {});
+    const s2 = titleOnly.find((x) => x.id === 'pattern-s2');
+    expect(s2?.excerpt.length).toBeGreaterThan(0);
   });
 });

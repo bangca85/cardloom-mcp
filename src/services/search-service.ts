@@ -1,14 +1,28 @@
 import type Database from 'better-sqlite3';
-import { facetsIntersect, versionRangesIntersect, arraysIntersect, type FacetSet } from '../utils/facets-intersect.js';
+import {
+  facetsIntersect,
+  versionRangesIntersect,
+  arraysIntersect,
+  classifyScopeLayer,
+  type FacetSet,
+  type ScopeLayer,
+} from '../utils/facets-intersect.js';
+import { classifyMatch, TIER_RANK, type MatchTier } from '../utils/match-tier.js';
 import { computeTrust } from './trust-service.js';
 import { computeCardLabels, computeCardFlags, type CardLabels } from './card-service.js';
 import { daysSince } from '../utils/date.js';
 import { config } from '../config/env.js';
 import type { Card } from '../types/card-schema.js';
 
+export type SearchRanking = 'baseline' | 'x' | 'y';
+export type SearchFallback = 'off' | 'tiered';
+
 export interface SearchContext {
   stack?: string[];
   versions?: Record<string, string>;
+  /** Caller's project key; enables scope layers. Never used to hide cards, only to rank/label them. */
+  project?: string;
+  aliases?: string[];
 }
 
 export interface SearchOptions {
@@ -17,6 +31,10 @@ export interface SearchOptions {
   includeDeprecated?: boolean;
   includeRestricted?: boolean;
   limit?: number;
+  /** Overrides config.searchRanking (used by the benchmark). */
+  ranking?: SearchRanking;
+  /** Overrides config.searchFallback (used by the benchmark). */
+  fallback?: SearchFallback;
 }
 
 export interface SearchResultFlags {
@@ -38,6 +56,10 @@ export interface SearchResultItem extends CardLabels {
   version_range: string;
   trust: number;
   preview: string;
+  /** FTS5 snippet of the body around the hit; falls back to `preview` when empty. */
+  excerpt: string;
+  match: MatchTier;
+  scope_layer: ScopeLayer | null;
   flags: SearchResultFlags;
 }
 
@@ -57,6 +79,7 @@ interface CardRow {
   last_verified: string | null;
   deprecation_reason: string | null;
   body: string;
+  excerpt: string | null;
   fts_rank: number;
   usage: number;
   success: number;
@@ -73,6 +96,68 @@ function buildFtsQuery(rawQuery: string): string {
     .filter(Boolean)
     .map((token) => `"${token.replace(/"/g, '""')}"`)
     .join(' ');
+}
+
+// OR query for the tiered fallback: every run of non-letter/non-digit chars becomes a separator, so
+// no FTS5 syntax survives. Returns null when nothing searchable is left (e.g. `***`, `-`).
+function buildOrFtsQuery(rawQuery: string): string | null {
+  const tokens = rawQuery
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (tokens.length === 0) return null;
+  return tokens.map((token) => `"${token}"`).join(' OR ');
+}
+
+function runFtsQuery(db: Database.Database, ftsQuery: string, statusList: string, sensitivityClause: string): CardRow[] {
+  return db
+    .prepare(
+      `
+      SELECT
+        cards.id, cards.type, cards.status, cards.title, cards.domain, cards.stack, cards.applies_to,
+        cards.task_type, cards.error_signature, cards.scope, cards.version_range, cards.sensitivity,
+        cards.last_verified, cards.deprecation_reason, cards.body,
+        snippet(cards_fts, 1, '', '', '…', 16) as excerpt,
+        cards_fts.rank as fts_rank,
+        COALESCE(counters.usage, 0) as usage,
+        COALESCE(counters.success, 0) as success,
+        COALESCE(counters.failure, 0) as failure
+      FROM cards_fts
+      JOIN cards ON cards.rowid = cards_fts.rowid
+      LEFT JOIN counters ON counters.card_id = cards.id
+      WHERE cards_fts MATCH @query
+        AND cards.status IN (${statusList})
+        ${sensitivityClause}
+      `,
+    )
+    .all({ query: ftsQuery }) as CardRow[];
+}
+
+// Tiered mode only: an FTS5 syntax error is treated as "no results" instead of escaping to the caller.
+function runFtsQuerySafe(db: Database.Database, ftsQuery: string, statusList: string, sensitivityClause: string): CardRow[] {
+  try {
+    return runFtsQuery(db, ftsQuery, statusList, sensitivityClause);
+  } catch (err) {
+    if ((err as { code?: unknown }).code === 'SQLITE_ERROR') {
+      console.error(`[search-service] FTS query rejected, treating as no results: ${(err as Error).message}`);
+      return [];
+    }
+    throw err;
+  }
+}
+
+/**
+ * Scope rank for ranking modes x/y (lower first). Without a caller project, scope layers are
+ * unknown, so only facetMatch counts. Any drift drops a card to the last band.
+ */
+function computeScopeRank(layer: ScopeLayer | null, facetMatch: boolean, drift: boolean): number {
+  if (layer === null) return facetMatch ? 1 : 3;
+  if (drift) return 3;
+  if (layer === 'this_project') return 0;
+  if (layer === 'shared' && facetMatch) return 1;
+  if (layer === 'other_project' || layer === 'unknown') return 2;
+  return 3;
 }
 
 function computeDrift(card: CardRow, context?: SearchContext): boolean {
@@ -123,28 +208,26 @@ export function searchCards(db: Database.Database, query: string, opts: SearchOp
 
   const sensitivityClause = opts.includeRestricted ? '' : "AND cards.sensitivity = 'normal'";
 
-  const escapedQuery = buildFtsQuery(query);
+  const ranking: SearchRanking = opts.ranking ?? config.searchRanking;
+  const fallback: SearchFallback = opts.fallback ?? config.searchFallback;
+  const limit = opts.limit !== undefined && opts.limit > 0 ? opts.limit : 10;
 
-  const rows = db
-    .prepare(
-      `
-      SELECT
-        cards.id, cards.type, cards.status, cards.title, cards.domain, cards.stack, cards.applies_to,
-        cards.task_type, cards.error_signature, cards.scope, cards.version_range, cards.sensitivity,
-        cards.last_verified, cards.deprecation_reason, cards.body,
-        cards_fts.rank as fts_rank,
-        COALESCE(counters.usage, 0) as usage,
-        COALESCE(counters.success, 0) as success,
-        COALESCE(counters.failure, 0) as failure
-      FROM cards_fts
-      JOIN cards ON cards.rowid = cards_fts.rowid
-      LEFT JOIN counters ON counters.card_id = cards.id
-      WHERE cards_fts MATCH @query
-        AND cards.status IN (${statusList})
-        ${sensitivityClause}
-      `,
-    )
-    .all({ query: escapedQuery }) as CardRow[];
+  const andQuery = buildFtsQuery(query);
+
+  let rows: CardRow[];
+  let allTermsIds: Set<string>;
+  if (fallback === 'tiered') {
+    const orQuery = buildOrFtsQuery(query);
+    if (orQuery === null) return [];
+    const andRows = runFtsQuerySafe(db, andQuery, statusList, sensitivityClause);
+    allTermsIds = new Set(andRows.map((row) => row.id));
+    rows = andRows.length >= limit ? andRows : runFtsQuerySafe(db, orQuery, statusList, sensitivityClause);
+  } else {
+    rows = runFtsQuery(db, andQuery, statusList, sensitivityClause);
+    allTermsIds = new Set(rows.map((row) => row.id));
+  }
+
+  const caller = { project: opts.context?.project, aliases: opts.context?.aliases };
 
   const contextFacets: FacetSet = {
     scope: 'global',
@@ -175,6 +258,11 @@ export function searchCards(db: Database.Database, query: string, opts: SearchOp
     const drift = computeDrift(row, normalizedContext);
     const facetMatch = contextFacets.stack.length > 0 && facetsIntersect(contextFacets, cardFacets) && !drift;
 
+    // The cards table has no `project` column yet, so layers come from applies_to only.
+    const scopeLayer = classifyScopeLayer({ scope: row.scope, project: undefined, applies_to: appliesTo }, caller);
+    const scopeRank = computeScopeRank(scopeLayer, facetMatch, drift);
+    const match = classifyMatch(query, { title: row.title, error_signature: row.error_signature }, allTermsIds.has(row.id));
+
     const trust = computeTrust(
       { status: row.status, lastVerified: row.last_verified, success: row.success, failure: row.failure },
       now,
@@ -192,6 +280,7 @@ export function searchCards(db: Database.Database, query: string, opts: SearchOp
       deprecationReason: row.deprecation_reason,
     });
 
+    const preview = row.body.slice(0, 200);
     const item: SearchResultItem = {
       id: row.id,
       type: row.type,
@@ -204,20 +293,33 @@ export function searchCards(db: Database.Database, query: string, opts: SearchOp
       error_signature: row.error_signature,
       version_range: row.version_range,
       trust,
-      preview: row.body.slice(0, 200),
+      preview,
+      excerpt: row.excerpt ? row.excerpt : preview,
+      match,
+      scope_layer: scopeLayer,
       flags,
       ...labels,
     };
 
-    return { item, facetMatch, ftsRank: row.fts_rank };
+    return { item, facetMatch, ftsRank: row.fts_rank, tierRank: TIER_RANK[match], scopeRank };
   });
 
-  results.sort((a, b) => {
-    if (a.facetMatch !== b.facetMatch) return a.facetMatch ? -1 : 1;
-    if (a.ftsRank !== b.ftsRank) return a.ftsRank - b.ftsRank;
-    return b.item.trust - a.item.trust;
-  });
+  if (ranking === 'baseline') {
+    results.sort((a, b) => {
+      if (a.facetMatch !== b.facetMatch) return a.facetMatch ? -1 : 1;
+      if (a.ftsRank !== b.ftsRank) return a.ftsRank - b.ftsRank;
+      return b.item.trust - a.item.trust;
+    });
+  } else {
+    const primary = ranking === 'x' ? 'scopeRank' : 'tierRank';
+    const secondary = ranking === 'x' ? 'tierRank' : 'scopeRank';
+    results.sort((a, b) => {
+      if (a[primary] !== b[primary]) return a[primary] - b[primary];
+      if (a[secondary] !== b[secondary]) return a[secondary] - b[secondary];
+      if (a.ftsRank !== b.ftsRank) return a.ftsRank - b.ftsRank;
+      return b.item.trust - a.item.trust;
+    });
+  }
 
-  const limit = opts.limit !== undefined && opts.limit > 0 ? opts.limit : 10;
   return results.slice(0, limit).map((r) => r.item);
 }

@@ -57,3 +57,37 @@ describe('config graph env getters', () => {
     );
   });
 });
+
+describe('config search env getters', () => {
+  afterEach(() => {
+    delete process.env['SEARCH_RANKING'];
+    delete process.env['SEARCH_FALLBACK'];
+  });
+
+  it('searchRanking defaults to baseline', () => {
+    expect(config.searchRanking).toBe('baseline');
+    process.env['SEARCH_RANKING'] = '';
+    expect(config.searchRanking).toBe('baseline');
+  });
+
+  it('searchRanking falls back to baseline for an unknown value', () => {
+    process.env['SEARCH_RANKING'] = 'bogus';
+    expect(config.searchRanking).toBe('baseline');
+  });
+
+  it.each([['x', 'x'], ['Y', 'y'], [' baseline ', 'baseline']])('searchRanking accepts %j', (raw, expected) => {
+    process.env['SEARCH_RANKING'] = raw;
+    expect(config.searchRanking).toBe(expected);
+  });
+
+  it('searchFallback defaults to off', () => {
+    expect(config.searchFallback).toBe('off');
+    process.env['SEARCH_FALLBACK'] = 'nope';
+    expect(config.searchFallback).toBe('off');
+  });
+
+  it('searchFallback is case-insensitive', () => {
+    process.env['SEARCH_FALLBACK'] = 'TIERED';
+    expect(config.searchFallback).toBe('tiered');
+  });
+});

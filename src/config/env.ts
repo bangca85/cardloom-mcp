@@ -47,6 +47,22 @@ export const config = {
     return parsePositiveIntEnv(process.env['MAX_SHARED_STACK_EDGES'], 5000);
   },
   /**
+   * Result ordering for searchCards (AD-10 default stays `baseline` until a benchmark decision):
+   *   baseline — facetMatch → ftsRank → trust (the original order).
+   *   x        — scopeRank → match tier → ftsRank → trust.
+   *   y        — match tier → scopeRank → ftsRank → trust.
+   * Unknown or empty → `baseline`.
+   */
+  get searchRanking(): SearchRankingMode {
+    const raw = (process.env['SEARCH_RANKING'] ?? '').trim().toLowerCase();
+    return raw === 'x' || raw === 'y' ? raw : 'baseline';
+  },
+  /** `tiered` adds an OR-query fallback when the AND query returns fewer than `limit` rows. Unknown or empty → `off`. */
+  get searchFallback(): SearchFallbackMode {
+    const raw = (process.env['SEARCH_FALLBACK'] ?? '').trim().toLowerCase();
+    return raw === 'tiered' ? 'tiered' : 'off';
+  },
+  /**
    * What `npm run promote-merged` does with a draft whose source commit reached its repo's
    * default branch AFTER the card was written:
    *   off    — nothing; the CLI exits without looking.
@@ -82,6 +98,8 @@ export const config = {
 } as const;
 
 export type PromotionMode = 'off' | 'review' | 'auto';
+export type SearchRankingMode = 'baseline' | 'x' | 'y';
+export type SearchFallbackMode = 'off' | 'tiered';
 
 function splitList(raw: string | undefined, sep: string): string[] {
   if (raw === undefined || raw.trim() === '') return [];
