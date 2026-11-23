@@ -149,7 +149,9 @@ project repos, keep a `.knowledge-map.yaml` that your agent reads and passes as 
 
 ```yaml
 # .knowledge-map.yaml — lives in the root of each project repo you work in
-repo: my-app
+project: acme/billing-api
+aliases:            # optional: other names this project has had in existing cards
+  - billing-api
 stack:
   - nextjs@15
   - postgres@16
@@ -157,14 +159,19 @@ stack:
 domain: backend
 ```
 
+`project:` is the key the agent passes as `context.project` (and `aliases:` as `context.aliases`)
+so results can be labelled by scope (this project, shared, other project) and ranked for this
+project; cards for other projects are never hidden.
+Older maps that use `repo:` instead of `project:` are still accepted by clients.
+
 Workflow for a brand-new repo:
 
 1. Ask the agent to inspect the repo (package.json, lockfiles, etc.) and generate a **draft**
    `.knowledge-map.yaml`.
 2. Review and edit it yourself — fix wrong stack detection, add domain hints.
 3. Commit it into the project repo (not `cardloom-mcp`).
-4. Point your agent/client at it so `search_knowledge` calls include `context: {stack, versions}`
-   read from that file.
+4. Point your agent/client at it so `search_knowledge` calls include `context: {stack, versions, project, aliases}`
+   read from that file (plus `project` and `aliases` when the map has them).
 
 ## Enforcing usage from a consumer project's CLAUDE.md / AGENTS.md
 
@@ -179,14 +186,17 @@ same repo, paste it into both files.
 
 **Before answering/implementing a task touching a known domain** (auth, rate-limiting,
 third-party API contracts, infra gotchas, etc.): call `search_knowledge(query, context)` first,
-with `context` read from `.knowledge-map.yaml` at this repo's root (stack/versions).
+with `context` read from `.knowledge-map.yaml` at this repo's root (stack/versions, plus
+`project` and `aliases` so results can be ranked for this repo). A result with `match: related`,
+or a response with `no_direct_match: true`, means no card answers this yet — don't treat it as an answer.
 **If that file doesn't exist yet**, generate a draft yourself before proceeding — inspect this
 repo's manifest (package.json / pubspec.yaml / go.mod / requirements.txt, lockfiles) for the
 real stack + versions, write it in this shape, then ask the human to review before you rely on it:
 
 ```yaml
 # .knowledge-map.yaml — repo root, human-reviewed after you draft it
-repo: <repo-name>
+project: <owner/repo-name>
+aliases: []   # optional: other names this project has had in existing cards
 stack:
   - <tech>@<version>
   - <tech>@<version>

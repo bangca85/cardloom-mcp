@@ -191,6 +191,11 @@ function computeDrift(card: CardRow, context?: SearchContext): boolean {
   });
 }
 
+/** True when the index holds at least one verified card (used to explain an empty store). */
+export function hasVerifiedCards(db: Database.Database): boolean {
+  return db.prepare("SELECT 1 FROM cards WHERE status = 'verified' LIMIT 1").get() !== undefined;
+}
+
 export function searchCards(db: Database.Database, query: string, opts: SearchOptions = {}, now: Date = new Date()): SearchResultItem[] {
   if (typeof query !== 'string' || !query.trim()) {
     return [];

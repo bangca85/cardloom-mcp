@@ -2,11 +2,14 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { initializeSchema } from '../../src/db/schema.js';
 import { handleSearchKnowledge, WRITE_BACK_REMINDER } from '../../src/tools/search-knowledge.js';
+import { EMPTY_STORE_HINT } from '../../src/config/messages.js';
 
 interface CardFixture {
   id: string;
   status?: 'draft' | 'verified' | 'deprecated';
   body?: string;
+  title?: string;
+  appliesTo?: string[];
 }
 
 function insertCard(db: Database.Database, fixture: CardFixture): void {
@@ -17,7 +20,7 @@ function insertCard(db: Database.Database, fixture: CardFixture): void {
       verified_by, verification_method, last_verified, deprecation_reason, deprecated_at, deprecated_by,
       body, created_at, updated_at, file_mtime
     ) VALUES (
-      @id, 'pattern', @status, @title, NULL, '["node"]', '["api"]', NULL, NULL,
+      @id, 'pattern', @status, @title, NULL, '["node"]', @applies_to, NULL, NULL,
       'project', '>=1.0.0', 'normal', NULL, '[]', 'abc123', 'agent-observation',
       @verified_by, @verification_method, @last_verified, NULL, NULL, NULL,
       @body, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'
@@ -25,7 +28,8 @@ function insertCard(db: Database.Database, fixture: CardFixture): void {
   ).run({
     id: fixture.id,
     status: fixture.status ?? 'verified',
-    title: `Title for ${fixture.id}`,
+    title: fixture.title ?? `Title for ${fixture.id}`,
+    applies_to: JSON.stringify(fixture.appliesTo ?? ['api']),
     verified_by: fixture.status === 'draft' ? null : 'bradley',
     verification_method: fixture.status === 'draft' ? null : 'manual-review',
     last_verified: fixture.status === 'draft' ? null : '2026-01-01T00:00:00Z',
@@ -36,8 +40,15 @@ function insertCard(db: Database.Database, fixture: CardFixture): void {
 function parseResponse(result: { content: Array<{ type: string; text: string }> }): {
   results: Array<Record<string, unknown>>;
   write_back_reminder: string;
+  no_direct_match?: boolean;
+  hint?: string;
 } {
-  return JSON.parse(result.content[0]!.text) as { results: Array<Record<string, unknown>>; write_back_reminder: string };
+  return JSON.parse(result.content[0]!.text) as {
+    results: Array<Record<string, unknown>>;
+    write_back_reminder: string;
+    no_direct_match?: boolean;
+    hint?: string;
+  };
 }
 
 describe('handleSearchKnowledge', () => {
@@ -49,6 +60,8 @@ describe('handleSearchKnowledge', () => {
   });
 
   afterEach(() => {
+    delete process.env.SEARCH_FALLBACK;
+    delete process.env.SEARCH_RANKING;
     db.close();
   });
 
@@ -59,7 +72,14 @@ describe('handleSearchKnowledge', () => {
 
     expect(response.results).toHaveLength(1);
     const item = response.results[0]!;
-    expect(item).toMatchObject({ id: 'pattern-one', type: 'pattern', status: 'verified' });
+    expect(item).toMatchObject({
+      id: 'pattern-one',
+      type: 'pattern',
+      status: 'verified',
+      title: 'Title for pattern-one',
+      match: expect.any(String),
+    });
+    expect(Object.keys(item).sort()).toEqual(['flags', 'id', 'match', 'snippet', 'status', 'title', 'trust', 'type']);
     expect(typeof item['snippet']).toBe('string');
     expect((item['snippet'] as string).length).toBeLessThanOrEqual(200);
     expect(item['body']).toBeUndefined();
@@ -93,4 +113,76 @@ describe('handleSearchKnowledge', () => {
 
     expect(response.results.map((r) => r['id'])).toContain('pattern-ctx');
   });
+
+  it('returns title, rounded trust and match label', () => {
+    insertCard(db, { id: 'pattern-retry', body: 'retry with backoff' });
+
+    const item = parseResponse(handleSearchKnowledge(db, { query: 'retry' })).results[0]!;
+
+    expect(item).toMatchObject({ title: expect.any(String), match: expect.any(String) });
+    expect(String(item['trust']).split('.')[1]?.length ?? 0).toBeLessThanOrEqual(2);
+  });
+
+  it('sets no_direct_match when only related results come back', () => {
+    process.env.SEARCH_FALLBACK = 'tiered';
+    insertCard(db, { id: 'pattern-alpha', body: 'alpha content only' });
+
+    const response = parseResponse(handleSearchKnowledge(db, { query: 'alpha zzzmissing' }));
+
+    expect(response.results.map((r) => r['match'])).toEqual(['related']);
+    expect(response.no_direct_match).toBe(true);
+  });
+
+  it('omits no_direct_match when a result is a direct match or there are no results', () => {
+    process.env.SEARCH_FALLBACK = 'tiered';
+    insertCard(db, { id: 'pattern-alpha', body: 'alpha beta content' });
+
+    const direct = parseResponse(handleSearchKnowledge(db, { query: 'alpha beta' }));
+    expect(direct.results[0]!['match']).not.toBe('related');
+    expect(direct.no_direct_match).toBeUndefined();
+
+    const none = parseResponse(handleSearchKnowledge(db, { query: 'qqqqnothing' }));
+    expect(none.results).toHaveLength(0);
+    expect(none.no_direct_match).toBeUndefined();
+  });
+
+  it('adds the empty-store hint when no verified card exists', () => {
+    const empty = new Database(':memory:');
+    initializeSchema(empty);
+    try {
+      expect(parseResponse(handleSearchKnowledge(empty, { query: 'x' })).hint).toBe(EMPTY_STORE_HINT);
+    } finally {
+      empty.close();
+    }
+  });
+
+  it('omits the hint once a verified card exists, but not for a draft-only store', () => {
+    insertCard(db, { id: 'pattern-draft', status: 'draft' });
+    expect(parseResponse(handleSearchKnowledge(db, { query: 'x' })).hint).toBe(EMPTY_STORE_HINT);
+
+    insertCard(db, { id: 'pattern-verified' });
+    expect(parseResponse(handleSearchKnowledge(db, { query: 'x' })).hint).toBeUndefined();
+  });
+
+  it('includes scope_layer only when the caller gave a project, and applies_to only for unknown', () => {
+    insertCard(db, { id: 'pattern-unknown', body: 'layered content', appliesTo: ['api'] });
+    insertCard(db, { id: 'pattern-mine', body: 'layered content', appliesTo: ['acme/billing-api'] });
+
+    const without = parseResponse(handleSearchKnowledge(db, { query: 'layered' }));
+    for (const item of without.results) {
+      expect(item['scope_layer']).toBeUndefined();
+      expect(item['applies_to']).toBeUndefined();
+    }
+
+    const withProject = parseResponse(
+      handleSearchKnowledge(db, { query: 'layered', context: { project: 'acme/billing-api', aliases: [] } }),
+    );
+    const byId = Object.fromEntries(withProject.results.map((r) => [r['id'] as string, r]));
+    expect(byId['pattern-mine']!['scope_layer']).toBe('this_project');
+    expect(byId['pattern-mine']!['applies_to']).toBeUndefined();
+    expect(byId['pattern-unknown']!['scope_layer']).toBe('unknown');
+    expect(byId['pattern-unknown']!['applies_to']).toEqual(['api']);
+  });
+
+  it.todo('labels an other_project card with applies_to_project only when the card names its project (needs the cards.project column from Task 8)');
 });

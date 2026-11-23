@@ -116,6 +116,8 @@ export function createServer(db: Database.Database, knowledgeStorePath: string):
           .object({
             stack: z.array(z.string()).optional().describe('Tech stack tags of the calling repo'),
             versions: z.record(z.string(), z.string()).optional().describe('Stack tag -> version range the calling repo is on'),
+            project: z.string().optional().describe('Project key from .knowledge-map.yaml (project:, or repo: in older maps)'),
+            aliases: z.array(z.string()).optional().describe('Other names this project has had in existing cards'),
           })
           .optional()
           .describe('Caller repo context — read by the agent/client from .knowledge-map.yaml, the server does not read it itself'),
