@@ -1,8 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
+import BetterSqlite3 from 'better-sqlite3';
+import type Database from 'better-sqlite3';
 import { parse as parseYaml } from 'yaml';
 import { config } from '../config/env.js';
-import { getDatabase, closeDatabase } from '../db/database.js';
+import { initializeSchema } from '../db/schema.js';
+import { reconcileIndex } from '../services/index-reconciler.js';
 import { searchCards, type SearchContext } from '../services/search-service.js';
 
 export interface BenchmarkQuery {
@@ -42,6 +46,40 @@ export function parseQueriesYaml(raw: string): BenchmarkQuery[] {
     throw new Error(`queries.yaml entry at index ${invalidIndex} is missing required "query"/"expected" string fields`);
   }
   return parsed as BenchmarkQuery[];
+}
+
+/**
+ * Builds a throwaway in-memory index straight from the card files, so the benchmark never scores
+ * against whatever stale index.db happens to be on disk (AD-2: the index is derived).
+ */
+export async function buildFreshIndex(storePath: string): Promise<Database.Database> {
+  const db = new BetterSqlite3(':memory:');
+  initializeSchema(db);
+  await reconcileIndex(db, storePath);
+  return db;
+}
+
+/** Expected card ids that have no row in `cards` — de-duplicated, sorted. */
+export function findMissingExpected(db: Database.Database, queries: BenchmarkQuery[]): string[] {
+  const exists = db.prepare('SELECT 1 FROM cards WHERE id = ?');
+  const missing = new Set<string>();
+  for (const q of queries) {
+    if (!exists.get(q.expected)) missing.add(q.expected);
+  }
+  return [...missing].sort();
+}
+
+export function corpusFingerprint(db: Database.Database): { cards: number; verified: number; sha256: string } {
+  const rows = db
+    .prepare('SELECT id, status, file_mtime FROM cards ORDER BY id')
+    .all() as Array<{ id: string; status: string; file_mtime: string }>;
+  const hash = createHash('sha256');
+  for (const r of rows) hash.update(`${r.id}|${r.status}|${r.file_mtime}\n`);
+  return {
+    cards: rows.length,
+    verified: rows.filter((r) => r.status === 'verified').length,
+    sha256: hash.digest('hex'),
+  };
 }
 
 function percentile(sortedDurations: number[], p: number): number {
@@ -112,13 +150,23 @@ export async function runBenchmarkCli(): Promise<void> {
   }
 
   const queries = parseQueriesYaml(fs.readFileSync(queriesPath, 'utf-8'));
-  const db = getDatabase(config.indexDbPath);
+  const db = await buildFreshIndex(config.knowledgeStorePath);
 
   try {
+    const missing = findMissingExpected(db, queries);
+    if (missing.length > 0) {
+      console.log(`[benchmark] ${missing.length} expected card id(s) are not in the store — refusing to score:`);
+      for (const id of missing) console.log(`  - ${id}`);
+      process.exitCode = 2;
+      return;
+    }
+
+    const fp = corpusFingerprint(db);
+    console.log(`[benchmark] corpus cards=${fp.cards} verified=${fp.verified} sha256=${fp.sha256}`);
     const report = runBenchmark(db, queries);
     console.log(formatReport(report));
   } finally {
-    closeDatabase();
+    db.close();
   }
 }
 

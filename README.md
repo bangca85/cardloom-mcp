@@ -336,10 +336,15 @@ npm run build && npm run benchmark
 docker compose run --rm cardloom-mcp npm run benchmark
 ```
 
+Each run builds its own throwaway in-memory index from the card files in the store (it never
+reads `index.db`, so a stale index cannot produce a false score), then prints a corpus fingerprint
+line (card count, verified count, sha256 over `id|status|file_mtime`) before the report.
+
 It runs every query through the exact same `search_knowledge` ranking path (no separate scoring
 logic to drift out of sync) and reports top-1 hit rate, p50/p95 latency, and a list of misses. A
-low hit rate is a signal to add facets or fix a card, not a failure — the script always exits 0
-unless something operational is actually broken (missing file, corrupt YAML, DB error). If
+low hit rate is a signal to add facets or fix a card, not a failure. If any `expected` card id in
+`benchmark/queries.yaml` has no card in the store, the benchmark lists those ids and exits with
+code 2 without scoring. Other operational problems (corrupt YAML, unreadable store) exit 1. If
 `benchmark/queries.yaml` doesn't exist yet, it says so and exits cleanly instead of erroring.
 
 ## Commands
