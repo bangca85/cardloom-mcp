@@ -1,15 +1,50 @@
 # cardloom-mcp
 
-MCP Knowledge Hub: long-lived, cross-project technical memory for an AI agent. Knowledge lives as
-markdown **cards** (`draft → verified → deprecated`) in a git-backed store, indexed by SQLite for
-fast search. A human reviewer approves or retires cards while the agent reads, writes drafts, and
-reports usage outcomes.
+[![CI](https://github.com/bangca85/cardloom-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/bangca85/cardloom-mcp/actions/workflows/ci.yml)
+
+**A reviewed engineering knowledge base for coding agents.** Your agent searches it before it
+answers and proposes what it learned as *draft* cards; nothing is trusted until you approve it.
+Cards are plain markdown in a git repository, and search is a local SQLite index with no LLM on
+the read path. It works with any MCP client, such as Claude Code, Cursor or Codex.
+
+## How it works
+
+- **Cards.** One markdown file per lesson: a `decision`, `gotcha` (with the error message in
+  `error_signature`), `pattern`, `playbook` or `snippet`, tagged with the stack, versions and project
+  it applies to.
+- **Lifecycle.** `draft → verified → deprecated`. An agent can only create drafts; a human approves
+  (`verified`) or retires (`deprecated`) them. Deprecated is final and the file is kept for history.
+  Search returns verified cards by default; drafts and deprecated cards only on request, always labelled.
+- **Git is the source of truth.** `cards/*.md` and `events/*.jsonl` are committed locally. The SQLite
+  index is derived and can be rebuilt at any time. Syncing between machines is an ordinary git
+  push/pull that you run; the server never touches a remote.
+- **Search.** Full-text search (SQLite FTS5) with matching on stack, version and project. Every result
+  says how it matched, so an agent can tell a real hit from a loose one, and carries a trust score
+  from usage feedback and age.
+- **Careful by construction.** Draft and deprecated content is labelled `untrusted` / `deprecated` in
+  every response, secret patterns are rejected on save, and a card that conflicts with an existing
+  one is refused instead of silently overwriting it.
+
+## Tools
+
+| Tool | What it does |
+| --- | --- |
+| `search_knowledge` | Find cards by keywords or a pasted error message; returns compact results with a `match` label. |
+| `get_card` | Read one card in full (also available as the resource `knowledge://card/{id}`). |
+| `save_learning_draft` | Save a new card as a draft. |
+| `update_card_status` | Verify or deprecate a card, only after a human approves. |
+| `report_card_usage` | Report whether a card helped: `confirmed`, `refuted` or `neutral`. |
+
+There is also one prompt, `distill_project_knowledge`, which guides an agent through turning an existing
+project's docs and history into draft cards.
 
 ## Quickstart
 
-> **Note:** the `cardloom-mcp` npm package is not published yet. The `npx` commands in step 1 and
-> step 2 apply after the first release. Until then, register the server with
-> [Option 2 (Docker)](#option-2-docker) or [Option 3](#option-3-native-from-a-clone-no-docker) from the Setup section.
+<!-- unpublished:start -->
+> **Not on npm yet.** The `npx` commands below work once the package is published. Until then,
+> register the server from a clone with [Option 2 (Docker)](#option-2-docker) or
+> [Option 3 (native)](#option-3-native-from-a-clone-no-docker).
+<!-- unpublished:end -->
 
 Five steps from an empty knowledge store to your first trusted card:
 
@@ -39,32 +74,47 @@ stack:
 domain: backend
 ```
 
-> The `cardloom-mcp` npm package is not published yet. Until it is, use the [Setup](#setup)
-> section below to register the server.
-
 ## Setup
 
 Three ways to run the server, easiest first. They all expose the same 5 tools.
 
+Options 2 and 3 run from a clone: `git clone https://github.com/bangca85/cardloom-mcp.git && cd cardloom-mcp`.
+
 ### Option 1: npx (no clone, no Docker)
 
-> **Note:** the `cardloom-mcp` npm package is not published yet. These `npx` commands apply after
-> the first release; until then use [Option 2 (Docker)](#option-2-docker) or
-> [Option 3](#option-3-native-from-a-clone-no-docker).
+<!-- unpublished:start -->
+> Available after the first npm release. Until then use Option 2 or 3.
+<!-- unpublished:end -->
 
-Needs Node 20+. The launcher keeps your cards in `~/.cardloom/knowledge-store` and the SQLite
-index in `~/.cardloom/index.db`; set `KNOWLEDGE_STORE_PATH` / `INDEX_DB_PATH` to put them elsewhere.
+Needs Node 20, 22 or 24+ (CI runs 20 and 22). The launcher keeps your cards in
+`~/.cardloom/knowledge-store` and the SQLite index in `~/.cardloom/index.db`; set
+`KNOWLEDGE_STORE_PATH` / `INDEX_DB_PATH` to put them elsewhere.
 
 ```bash
 claude mcp add cardloom -- npx -y cardloom-mcp
 npx cardloom-mcp doctor   # read-only health check: store path, card counts by status
 ```
 
-Other clients use the same command (`"command": "npx", "args": ["-y", "cardloom-mcp"]` in JSON
-configs such as Cursor's `~/.cursor/mcp.json`).
+Other clients use the same command. Cursor (`~/.cursor/mcp.json`):
 
-> The `cardloom-mcp` npm package is not published yet, so `npx cardloom-mcp` only works once it
-> is. Until then use Option 2 or 3, or run `npm pack` in a clone and `npx` the resulting tarball.
+```json
+{
+  "mcpServers": {
+    "cardloom": { "command": "npx", "args": ["-y", "cardloom-mcp"] }
+  }
+}
+```
+
+Codex (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.cardloom]
+command = "npx"
+args = ["-y", "cardloom-mcp"]
+```
+
+The SQLite driver (`better-sqlite3`) ships prebuilt binaries for common platforms; elsewhere npm
+compiles it, which needs a C++ toolchain.
 
 ### Option 2: Docker
 
@@ -118,6 +168,12 @@ configs such as Cursor's `~/.cursor/mcp.json`).
    resource template, `knowledge://card/{id}`, and one Prompt, `distill_project_knowledge`
    (see [Ingesting an existing project](#ingesting-an-existing-project)).
 
+Each MCP session starts a fresh container (`docker compose run --rm -i`) that exits when the client
+disconnects. Cards live in `./knowledge-store` (a bind mount: human-editable and git-tracked). The SQLite
+index lives in a separate named Docker volume, because a SQLite file on a macOS bind mount is unreliable;
+never touch it by hand, it is fully disposable and rebuilds from `knowledge-store/` (see
+`npm run rebuild-index`).
+
 ### Option 3: Native from a clone (no Docker)
 
 Docker on macOS runs a Linux VM (Virtualization.framework) underneath, which reserves several GB
@@ -147,62 +203,62 @@ Register the server with your MCP client using `node` directly instead of the Do
 }
 ```
 
-For the web viewer, run `npm run web` (or `node dist/web/server.js`) with the same two env vars
-set, plus `PORT` if you don't want the default `3334`.
+Trade-off: you lose container isolation, and `git commit`s use your host's git config. The SQLite
+index and its write lock live on your local filesystem, so there is no bind-mount quirk to worry about.
 
-Trade-off: you lose container isolation and `git commit`s use your host's git config (which
-actually matches AD-11 more closely — push/pull was always the host's job). The
-`.metadata/index.db` + write lock land on your local filesystem instead of a named Docker
-volume — on macOS this sidesteps the virtiofs bind-mount hazard AD-16 warns about for the
-containerized path, since there's no bind mount involved at all.
+## Configuration
 
-Each MCP session starts a fresh container (`docker compose run --rm -i`) that exits when the
-client disconnects. Cards live in `./knowledge-store` (bind mount, human-editable, git-tracked);
-the SQLite index lives in a separate named Docker volume — never touch it by hand, it's fully
-disposable and rebuilds from `knowledge-store/` (see `npm run rebuild-index`).
+Every setting is an environment variable and every one is optional.
 
-Optional environment variables:
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `KNOWLEDGE_STORE_PATH` | `~/.cardloom/knowledge-store` with `npx`, `./knowledge-store` otherwise | Where cards (`cards/`), usage events (`events/`) and your benchmark live. It is its own git repository. |
+| `INDEX_DB_PATH` | `~/.cardloom/index.db` with `npx`, `<store>/.metadata/index.db` otherwise | The SQLite index. Derived data, safe to delete. |
+| `SEARCH_FALLBACK` | `tiered` | `tiered`: when exact-word search finds fewer than `limit` cards, add partial matches labelled `related`. `off`: exact-word search only. |
+| `SEARCH_RANKING` | `baseline` | Result order: `baseline` or the opt-in `x` / `y`. See [How search works](#how-search-works). |
+| `STALE_THRESHOLD_DAYS` | `180` | A verified card older than this is flagged `stale`. |
+| `REVIEW_FAILURE_THRESHOLD` | `2` | A card with this many `refuted` reports is flagged `needs_review`. |
+| `REVIEWER_NAME` | `human-reviewer` | Recorded as `verified_by` when a card is approved. |
+| `KNOWLEDGE_MACHINE_ID` | the host name | Names this machine's usage log (`events/<id>.jsonl`) so two machines never write the same file. |
+| `PROMOTION_MODE` and the other `PROMOTION_*` | see [Merge promotion](#merge-promotion-npm-run-promote-merged) | Control `npm run promote-merged`. |
+| `PORT` | `3334` | Web viewer port. |
+| `GRAPH_GENERIC_STACK_TAGS`, `MAX_SHARED_STACK_GROUP_SIZE`, `MAX_SHARED_STACK_EDGES` | empty, `50`, `5000` | Web viewer graph tuning. |
 
-```bash
-KNOWLEDGE_STORE_PATH=./knowledge-store
-INDEX_DB_PATH=./knowledge-store/.metadata/index.db
-REVIEWER_NAME=human-reviewer
-```
+## How search works
 
-## Host sync (git push/pull)
+`search_knowledge(query, context)` takes keywords or a pasted error message. `context` carries the
+calling repo's `stack`, `versions`, `project` and `aliases` (see
+[`.knowledge-map.yaml`](#knowledge-mapyaml--giving-the-agent-context-per-repo)).
 
-The container **only commits locally** — it never pushes, pulls, or touches remotes or SSH keys
-(by design: credentials stay on the host, never inside the container). Syncing between machines
-is a host-side git habit, same as any other repo:
+Each result says how it matched:
 
-```bash
-# ~/.zshrc or ~/.bashrc
-alias ksync='git -C ~/path/to/cardloom-mcp/knowledge-store pull --rebase && git -C ~/path/to/cardloom-mcp/knowledge-store push'
-```
+| `match` | Meaning |
+| --- | --- |
+| `exact_signature` | The card's `error_signature` appears in your query. It is checked on the stored text, so `ERR-42` does not match `ERR_42`. |
+| `exact_identifier` | Your query contains an identifier from the card's `error_signature`, such as `ITMS-90683` or `AccessDeniedException`. |
+| `exact_title` | Your query is the card's whole title. |
+| `all_terms` | Every word of your query is in the card. |
+| `related` | Only some of the words match. |
 
-Run `ksync` whenever you switch machines, or automate it with `cron`/`launchd`:
+When every result is `related`, the response also has `no_direct_match: true`: no card answers the query
+yet, so treat the results as pointers, not answers. Set `SEARCH_FALLBACK=off` to get only cards that match
+all words.
 
-```cron
-# crontab -e — sync every 15 minutes
-*/15 * * * * git -C /path/to/cardloom-mcp/knowledge-store pull --rebase && git -C /path/to/cardloom-mcp/knowledge-store push
-```
+By default only `verified`, non-restricted cards are returned. `include_drafts`, `include_deprecated` and
+`include_restricted` opt in, and those cards are always labelled. Each result also carries a `trust` score
+and flags: `drift` (the card's version range does not match the caller's), `stale` and `needs_review`.
+With a `project` in the context, results also say whether a card belongs to this project, is shared, or
+applies to another project; cards for other projects are never hidden.
 
-Set up `knowledge-store` as its own git repo with a private remote (GitHub, etc.) from the
-**host**, not from inside the container:
-
-```bash
-cd knowledge-store
-git remote add origin git@github.com:you/your-private-knowledge.git
-git push -u origin main
-```
-
-Do not commit your real `knowledge-store/` to this project repository. It can contain private
-project names, decisions, error logs, source references, and SQLite runtime files. Keep it in a
-separate private repo or local-only directory.
+**Ranking.** The default (`SEARCH_RANKING=baseline`) orders results by stack and version match, then text
+relevance, then trust. The `x` and `y` modes also rank by project. They are opt-in because, in our
+benchmark, putting the project ahead of the text score pushed exact matches from shared cards below weaker
+matches from the caller's own project. Run `npm run benchmark -- --matrix` against your own store before
+enabling them.
 
 ## `.knowledge-map.yaml` — giving the agent context per repo
 
-The server never reads this file itself (FR19 — deferred). Instead, in each of your *other*
+The server never reads this file itself. Instead, in each of your *other*
 project repos, keep a `.knowledge-map.yaml` that your agent reads and passes as `context` to
 `search_knowledge`, so results rank by facet relevance instead of just keyword match:
 
@@ -230,7 +286,7 @@ Workflow for a brand-new repo:
 2. Review and edit it yourself — fix wrong stack detection, add domain hints.
 3. Commit it into the project repo (not `cardloom-mcp`).
 4. Point your agent/client at it so `search_knowledge` calls include `context: {stack, versions, project, aliases}`
-   read from that file (plus `project` and `aliases` when the map has them).
+   read from that file.
 
 ## Enforcing usage from a consumer project's CLAUDE.md / AGENTS.md
 
@@ -245,8 +301,8 @@ same repo, paste it into both files.
 
 **Before answering/implementing a task touching a known domain** (auth, rate-limiting,
 third-party API contracts, infra gotchas, etc.): call `search_knowledge(query, context)` first,
-with `context` read from `.knowledge-map.yaml` at this repo's root (stack/versions, plus
-`project` and `aliases` so results are labelled by scope for this repo, and ranked by project when `SEARCH_RANKING` is `x` or `y`). A result with `match: related`,
+with `context` read from `.knowledge-map.yaml` at this repo's root (`stack`, `versions`, and
+`project` / `aliases` so results are labelled for this repo). A result with `match: related`,
 or a response with `no_direct_match: true`, means no card answers this yet — don't treat it as an answer.
 **If that file doesn't exist yet**, generate a draft yourself before proceeding — inspect this
 repo's manifest (package.json / pubspec.yaml / go.mod / requirements.txt, lockfiles) for the
@@ -288,6 +344,21 @@ then ask for confirmation on which direction before calling `update_card_status`
 architecture or security call.
 ````
 
+## Approving knowledge in chat
+
+Every card an agent saves via `save_learning_draft` starts in `status: draft` — never trusted
+automatically. To promote or retire one:
+
+- **Approve:** tell the agent to approve a card; it calls
+  `update_card_status(id, "verify")`. Status flips to `verified`, and if the card declared
+  `supersedes: <old-id>`, the old card is deprecated in the *same* operation (one commit).
+- **Reject / retire:** tell the agent to deprecate a card with a reason; it calls
+  `update_card_status(id, "deprecate", reason)`. The file is kept (a retired card is never
+  deleted) and disappears from default search, but stays readable via `get_card`.
+
+`deprecated` is terminal — there's no un-deprecate. To bring a retired idea back, save a new card
+with `supersedes` pointing at the old one and approve it.
+
 ## Ingesting an existing project
 
 To distill an existing repo's accumulated knowledge (docs, architecture decisions, git history,
@@ -303,21 +374,6 @@ a distillation prompt each time:
   `search_knowledge` (using `supersedes` where a lesson is refined rather than new), and present
   cards in small batches for you to approve.
 - All cards still land in `draft` — nothing gets `verify`d without you approving in chat.
-
-## Approving knowledge in chat
-
-Every card an agent saves via `save_learning_draft` starts in `status: draft` — never trusted
-automatically (FR2). To promote or retire one:
-
-- **Approve:** tell the agent to approve a card; it calls
-  `update_card_status(id, "verify")`. Status flips to `verified`, and if the card declared
-  `supersedes: <old-id>`, the old card is deprecated in the *same* operation (one commit).
-- **Reject / retire:** tell the agent to deprecate a card with a reason; it calls
-  `update_card_status(id, "deprecate", reason)`. The file is kept (invalidate-and-preserve, FR3)
-  and disappears from default search, but stays readable via `get_card`.
-
-`deprecated` is terminal — there's no un-deprecate. To bring a retired idea back, save a new card
-with `supersedes` pointing at the old one and approve it.
 
 ## Merge promotion (`npm run promote-merged`)
 
@@ -343,7 +399,7 @@ merge commit's date; not in the clone at all (squash merge) → the GitHub pull 
 - a type outside `PROMOTION_AUTO_TYPES` (default `decision,pattern` — a merge is evidence about
   the change itself, not about a third-party system a gotcha describes);
 - a `restricted` card;
-- a card with `supersedes` — verifying it deprecates the old card (AD-13), and an unapproved draft
+- a card with `supersedes` — verifying it deprecates the old card, and an unapproved draft
   must never kill a verified card.
 
 Skipped outright: `source_commit` without a sha, a learning from uncommitted work on top of a sha,
@@ -365,7 +421,45 @@ npm run promote-merged -- --mode=review --json
 
 > Note: an auto-verified card can be undone only like any verified card — `deprecate` it, or
 > `git revert` its `knowledge: verify` commit in the store and `npm run rebuild-index`.
-> There is no way back to `draft` (AD-9).
+> There is no way back to `draft`.
+
+## Host sync (git push/pull)
+
+The container **only commits locally** — it never pushes, pulls, or touches remotes or SSH keys
+(by design: credentials stay on the host, never inside the container). Syncing between machines
+is a host-side git habit, same as any other repo. Use the path of your store: `~/.cardloom/knowledge-store`
+with `npx`, or `<clone>/knowledge-store` otherwise.
+
+```bash
+# ~/.zshrc or ~/.bashrc
+alias ksync='git -C ~/.cardloom/knowledge-store pull --rebase && git -C ~/.cardloom/knowledge-store push'
+```
+
+Run `ksync` whenever you switch machines, or automate it with `cron`/`launchd`:
+
+```cron
+# crontab -e — sync every 15 minutes
+*/15 * * * * git -C /path/to/your/knowledge-store pull --rebase && git -C /path/to/your/knowledge-store push
+```
+
+Set up `knowledge-store` as its own git repo with a private remote (GitHub, etc.) from the
+**host**, not from inside the container:
+
+```bash
+cd ~/.cardloom/knowledge-store   # or <clone>/knowledge-store
+git remote add origin git@github.com:you/your-private-knowledge.git
+git push -u origin HEAD
+```
+
+Do not commit your real `knowledge-store/` to this project repository. It can contain private
+project names, decisions, error logs, source references, and SQLite runtime files. Keep it in a
+separate private repo or local-only directory.
+
+## Web viewer
+
+A local List and Graph view of your cards, served at `http://127.0.0.1:3334`. From a clone run
+`npm run web` (with the same `KNOWLEDGE_STORE_PATH` and `INDEX_DB_PATH` as the server); with Docker run
+`docker compose up cardloom-web`. The `npx` launcher starts only the MCP server.
 
 ## Rebuilding the index
 
@@ -380,9 +474,8 @@ docker compose run --rm cardloom-mcp npm run rebuild-index
 
 ## Benchmark
 
-`knowledge-store/benchmark/queries.yaml` is the source of truth for the Success Criteria (top-1
-hit rate — target ≥70% MVP, measured monthly). It's a plain YAML list, committed alongside your
-cards:
+Your benchmark is `benchmark/queries.yaml` inside your store, committed alongside your cards. It is a
+plain YAML list:
 
 ```yaml
 - query: "how do I retry a failed network request"
@@ -412,8 +505,8 @@ working), an `expected` list, and `forbidden` ids:
 Per kind the report gives `n` plus: `known` / `cross_project` hit@1, MRR@5, recall@5 (any id in
 `expected`); `missing` `falseAnswerRate` (share whose top-1 is not labelled `related`) and
 `anyResultRate` (share returning at least one result); `project_decision` hit@1 and
-`wrongProjectTop1Rate` (share whose top-1 is in `forbidden`). The two questions that decide the
-AD-10 visibility call are `wrongProjectTop1Rate` (project_decision) and `recall5` (cross_project).
+`wrongProjectTop1Rate` (share whose top-1 is in `forbidden`). To compare ranking modes before changing
+`SEARCH_RANKING`, look at `wrongProjectTop1Rate` (project_decision) and recall@5 (cross_project).
 
 `--synthetic` skips `queries.yaml` and derives a suite from the store (verified + normal cards
 only): `title` (verbatim), `title_nl` (natural-language paraphrase), `sig_noisy` (a noisy pasted
@@ -458,16 +551,15 @@ npm test                # vitest run
 npm run rebuild-index   # rebuild index.db from cards/ + events/
 npm run benchmark       # measure top-1 hit rate + latency against benchmark/queries.yaml
 npm run doctor          # read-only store health check (path, git, card counts by status)
+npm run web             # local web viewer (List / Graph view) on http://127.0.0.1:3334
+npm run promote-merged  # list or verify drafts whose source commit was merged
 docker compose build && docker compose run --rm -i cardloom-mcp
 ```
 
-## Public repository hygiene
+## Contributing, security, license
 
-This repository is intended to contain source code, tests, and public documentation only.
-Keep these out of public commits:
-
-- `knowledge-store/` and any real cards/events/benchmark data
-- SQLite files such as `*.db`, `*.db-wal`, and `*.db-shm`
-- local MCP/agent settings such as `.claude/`, `.agent/`, `.agents/`, and `_bmad/`
-- internal planning docs unless they have been explicitly sanitized for `docs/public/`
-- build outputs and dependencies such as `dist/` and `node_modules/`
+- **Contributing:** see [CONTRIBUTING.md](CONTRIBUTING.md). Never commit a real `knowledge-store/`, SQLite
+  files or local agent settings; use synthetic cards in tests and examples.
+- **Security:** report vulnerabilities privately as described in [SECURITY.md](SECURITY.md). Treat
+  unreviewed cards as untrusted content.
+- **License:** [ISC](LICENSE).
