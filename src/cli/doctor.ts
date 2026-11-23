@@ -68,7 +68,7 @@ export async function runDoctor(storePath: string, indexDbPath: string): Promise
 
 export function formatDoctorReport(r: DoctorReport): string {
   const lines = [
-    `Knowledge store: ${r.storePath} (${r.storeExists ? 'found' : 'not found'})`,
+    `Knowledge store: ${r.storePath} (${r.storeExists ? 'found' : 'not found — created on first server start'})`,
     `Git repository:  ${r.isGitRepo ? 'yes' : 'no'}`,
     `Index database:  ${r.indexDbPath}`,
     'Cards:',

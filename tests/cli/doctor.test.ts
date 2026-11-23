@@ -103,6 +103,11 @@ describe('runDoctor', () => {
 });
 
 describe('formatDoctorReport', () => {
+  it('says a missing store is created on first server start', async () => {
+    const text = formatDoctorReport(await runDoctor(path.join(tmp, 'missing-store'), path.join(tmp, 'index.db')));
+    expect(text.split('\n')[0]).toContain('(not found — created on first server start)');
+  });
+
   it('ends with the empty-store hint when there are no verified cards', async () => {
     writeCard(tmp, 'pattern-doctor-draft.md', DRAFT_CARD);
     const text = formatDoctorReport(await runDoctor(tmp, path.join(tmp, 'index.db')));
