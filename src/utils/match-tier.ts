@@ -70,8 +70,15 @@ const GENERIC = new Set([
   'false',
 ]);
 
-const strip = (t: string): string =>
-  t.replace(/^[^\p{L}\p{N}_]+|[^\p{L}\p{N}_)]+$/gu, '');
+/**
+ * Trim outer punctuation. A trailing `)` survives only when the token contains `(`,
+ * so `close()` is kept but the `)` of `(foo_bar)` is dropped.
+ */
+const strip = (t: string): string => {
+  const trimmed = t.replace(/^[^\p{L}\p{N}_]+|[^\p{L}\p{N}_)]+$/gu, '');
+  if (trimmed.includes('(')) return trimmed;
+  return trimmed.replace(/^[^\p{L}\p{N}_]+|[^\p{L}\p{N}_]+$/gu, '');
+};
 
 const isIdentifier = (t: string): boolean =>
   t.length >= 4 &&
@@ -81,8 +88,7 @@ const isIdentifier = (t: string): boolean =>
     /\p{L}.*\d|\d.*\p{L}/u.test(t) ||
     /^[A-Z][A-Z0-9]{4,}$/.test(t) ||
     /\p{L}[.:/]\p{L}/u.test(t) ||
-    /.(Exception|Error)$/.test(t) ||
-    /^\d{3}$/.test(t));
+    /.(Exception|Error)$/.test(t));
 
 /**
  * Distinctive tokens of an error signature (camelCase, snake_case, codes, dotted names...).

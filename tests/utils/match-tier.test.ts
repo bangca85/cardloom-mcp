@@ -95,4 +95,15 @@ describe('helpers', () => {
     ]);
     expect(extractIdentifiers('got foo_bar from Foo_Bar')).toEqual(['foo_bar']);
   });
+
+  it('does not treat a bare HTTP status as an identifier', () => {
+    expect(extractIdentifiers('HTTP 500 Internal Server Error')).toEqual([]);
+  });
+
+  it('strips a trailing ) unless the token contains (', () => {
+    expect(extractIdentifiers('failed at (foo_bar)')).toContain('foo_bar');
+    expect(extractIdentifiers('hang at `await productionDatabase.close()`')).toContain(
+      'productiondatabase.close()',
+    );
+  });
 });
