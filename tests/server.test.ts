@@ -54,6 +54,11 @@ describe('MCP server surface (story 1.6)', () => {
     fs.rmSync(storePath, { recursive: true, force: true });
   });
 
+  it('reports the package.json version to clients, so the two never drift apart', () => {
+    const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf-8')) as { version: string };
+    expect(client.getServerVersion()).toMatchObject({ name: 'cardloom-knowledge', version: pkg.version });
+  });
+
   it('exposes exactly the 5 v2 tools — no v1 tools', async () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([

@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -54,10 +55,16 @@ export function withErrorBoundary<Args extends unknown[], R>(
   };
 }
 
+// The version clients see is the package version, read once from package.json (it sits one level above
+// both src/ and dist/, and is always part of the published package), so the two can never drift apart.
+const PACKAGE_VERSION: string = (
+  JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf-8')) as { version: string }
+).version;
+
 export function createServer(db: Database.Database, knowledgeStorePath: string): McpServer {
   const server = new McpServer({
     name: 'cardloom-knowledge',
-    version: '2.0.0',
+    version: PACKAGE_VERSION,
   });
 
   server.registerTool(
