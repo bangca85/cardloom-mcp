@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import Database from 'better-sqlite3';
+import { reconcileIndex } from '../../src/services/index-reconciler.js';
 import {
   initializeSchema,
   insertCardRelationsAndStacks,
@@ -48,6 +52,78 @@ describe('schema.ts relations and stacks', () => {
     expect((old.prepare("SELECT file_mtime FROM cards WHERE id = 'pattern-old'").get() as { file_mtime: string }).file_mtime).toBe('');
     initializeSchema(old); // idempotent
     old.close();
+  });
+
+  const projectColumnCount = (d: Database.Database): number =>
+    (d.prepare('PRAGMA table_info(cards)').all() as Array<{ name: string }>).filter((c) => c.name === 'project').length;
+
+  it('migrates safely when a second process adds the project column between check and ALTER', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cardloom-mcp-schema-'));
+    const file = path.join(dir, 'index.db');
+    const a = new Database(file);
+    const b = new Database(file);
+    try {
+      initializeSchema(a);
+      a.exec('ALTER TABLE cards DROP COLUMN project'); // old-shape index on disk
+      // Make B observe the old shape, then let A migrate before B's ALTER runs (the race window).
+      const realPrepare = b.prepare.bind(b);
+      let raced = false;
+      (b as unknown as { prepare: (sql: string) => unknown }).prepare = (sql: string) => {
+        const stmt = realPrepare(sql);
+        if (!raced && sql.includes('PRAGMA table_info(cards)')) {
+          raced = true;
+          const seen = (stmt as Database.Statement).all();
+          initializeSchema(a);
+          return { all: () => seen };
+        }
+        return stmt;
+      };
+      expect(() => initializeSchema(b)).not.toThrow();
+      expect(raced).toBe(true);
+      expect(projectColumnCount(b)).toBe(1);
+      expect(projectColumnCount(a)).toBe(1);
+    } finally {
+      a.close();
+      b.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('populates project from frontmatter after migrating an old-shape index and reconciling', async () => {
+    const store = fs.mkdtempSync(path.join(os.tmpdir(), 'cardloom-mcp-schema-store-'));
+    const old = new Database(':memory:');
+    try {
+      fs.mkdirSync(path.join(store, 'cards'));
+      fs.writeFileSync(
+        path.join(store, 'cards', 'pattern-old.md'),
+        `---
+type: pattern
+scope: project
+project: acme/billing-api
+applies_to: [api]
+stack: [node]
+version_range: ">=1.0.0"
+sensitivity: normal
+source_commit: abc123
+provenance: agent-observation
+title: Old card
+status: draft
+---
+Body of the old card.
+`,
+      );
+      initializeSchema(old);
+      await reconcileIndex(old, store); // index the row with the current shape
+      old.exec('ALTER TABLE cards DROP COLUMN project'); // downgrade to the old shape, mtime already recorded
+      initializeSchema(old);
+      await reconcileIndex(old, store);
+      expect((old.prepare("SELECT project FROM cards WHERE id = 'pattern-old'").get() as { project: string | null }).project).toBe(
+        'acme/billing-api',
+      );
+    } finally {
+      old.close();
+      fs.rmSync(store, { recursive: true, force: true });
+    }
   });
 
   it('inserts and deletes relations and stacks properly', () => {

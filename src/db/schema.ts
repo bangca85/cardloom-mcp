@@ -91,12 +91,18 @@ export function initializeSchema(db: Database.Database): void {
 
   // In-place migration for indexes created before the `project` column existed (AD-2: derived
   // data, repopulated by the next reconcile). CREATE TABLE IF NOT EXISTS never alters a table.
-  const columns = db.prepare('PRAGMA table_info(cards)').all() as Array<{ name: string }>;
-  if (!columns.some((c) => c.name === 'project')) {
-    db.exec('ALTER TABLE cards ADD COLUMN project TEXT');
-    // Existing rows have project = NULL; clearing file_mtime makes the next reconcile re-read every
-    // card (it skips rows whose mtime matches), so project values already in frontmatter get indexed.
-    db.exec("UPDATE cards SET file_mtime = ''");
+  const hasProjectColumn = (): boolean =>
+    (db.prepare('PRAGMA table_info(cards)').all() as Array<{ name: string }>).some((c) => c.name === 'project');
+  if (!hasProjectColumn()) {
+    // Two processes can open the same old index at once (cardloom-mcp + cardloom-web on one volume,
+    // or two npx sessions). Re-check under the write lock so only one of them runs the ALTER.
+    db.transaction(() => {
+      if (hasProjectColumn()) return;
+      db.exec('ALTER TABLE cards ADD COLUMN project TEXT');
+      // Existing rows have project = NULL; clearing file_mtime makes the next reconcile re-read every
+      // card (it skips rows whose mtime matches), so project values already in frontmatter get indexed.
+      db.exec("UPDATE cards SET file_mtime = ''");
+    }).immediate();
   }
 }
 
