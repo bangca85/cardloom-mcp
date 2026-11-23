@@ -134,13 +134,18 @@ function runFtsQuery(db: Database.Database, ftsQuery: string, statusList: string
     .all({ query: ftsQuery }) as CardRow[];
 }
 
+// Only genuine FTS5 query-syntax errors. SQLITE_ERROR alone is SQLite's generic code (it also covers
+// `no such table`, schema drift, ...), so the message must match too; anything else is rethrown.
+const FTS_SYNTAX_ERROR = /fts5: syntax error|unterminated string|malformed MATCH/i;
+
 // Tiered mode only: an FTS5 syntax error is treated as "no results" instead of escaping to the caller.
 function runFtsQuerySafe(db: Database.Database, ftsQuery: string, statusList: string, sensitivityClause: string): CardRow[] {
   try {
     return runFtsQuery(db, ftsQuery, statusList, sensitivityClause);
   } catch (err) {
-    if ((err as { code?: unknown }).code === 'SQLITE_ERROR') {
-      console.error(`[search-service] FTS query rejected, treating as no results: ${(err as Error).message}`);
+    const message = err instanceof Error ? err.message : '';
+    if ((err as { code?: unknown }).code === 'SQLITE_ERROR' && FTS_SYNTAX_ERROR.test(message)) {
+      console.error(`[search-service] FTS query rejected, treating as no results: ${message}`);
       return [];
     }
     throw err;
@@ -149,13 +154,15 @@ function runFtsQuerySafe(db: Database.Database, ftsQuery: string, statusList: st
 
 /**
  * Scope rank for ranking modes x/y (lower first). Without a caller project, scope layers are
- * unknown, so only facetMatch counts. Any drift drops a card to the last band.
+ * unknown, so only facetMatch counts. Any drift drops a card to the last band. A shared card
+ * ranks 1 when the caller gave no stack (facetMatch is then false for every card) or its facets
+ * match (controller ruling R8), so global/stack guidance never falls below other projects' cards.
  */
-function computeScopeRank(layer: ScopeLayer | null, facetMatch: boolean, drift: boolean): number {
+function computeScopeRank(layer: ScopeLayer | null, facetMatch: boolean, drift: boolean, callerHasStack: boolean): number {
   if (layer === null) return facetMatch ? 1 : 3;
   if (drift) return 3;
   if (layer === 'this_project') return 0;
-  if (layer === 'shared' && facetMatch) return 1;
+  if (layer === 'shared' && (!callerHasStack || facetMatch)) return 1;
   if (layer === 'other_project' || layer === 'unknown') return 2;
   return 3;
 }
@@ -260,7 +267,7 @@ export function searchCards(db: Database.Database, query: string, opts: SearchOp
 
     // The cards table has no `project` column yet, so layers come from applies_to only.
     const scopeLayer = classifyScopeLayer({ scope: row.scope, project: undefined, applies_to: appliesTo }, caller);
-    const scopeRank = computeScopeRank(scopeLayer, facetMatch, drift);
+    const scopeRank = computeScopeRank(scopeLayer, facetMatch, drift, contextFacets.stack.length > 0);
     const match = classifyMatch(query, { title: row.title, error_signature: row.error_signature }, allTermsIds.has(row.id));
 
     const trust = computeTrust(

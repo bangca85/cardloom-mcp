@@ -305,6 +305,22 @@ describe('searchCards — tiered fallback, ranking modes, scope layers (Task 4)'
     expect(ids.indexOf('decision-drift')).toBeGreaterThan(ids.indexOf('pattern-s1')); // unknown → 2
   });
 
+  it('x ranks shared guidance above other projects when the caller passes a project but no stack (R8)', () => {
+    insertCard(db, { id: 'pattern-global', scope: 'global', title: 'Zebra quokka', body: 'zebra quokka body' });
+    insertCard(db, { id: 'pattern-projb', scope: 'project', applies_to: ['proj-b'], title: 'Zebra quokka', body: 'zebra quokka body' });
+    const r = searchCards(db, 'zebra quokka', { context: { project: 'proj-a' }, ranking: 'x', fallback: 'tiered' });
+    const ids = r.map((x) => x.id);
+    expect(r.find((x) => x.id === 'pattern-global')?.scope_layer).toBe('shared');
+    expect(r.find((x) => x.id === 'pattern-projb')?.scope_layer).toBe('unknown');
+    expect(ids.indexOf('pattern-global')).toBeGreaterThanOrEqual(0);
+    expect(ids.indexOf('pattern-global')).toBeLessThan(ids.indexOf('pattern-projb'));
+  });
+
+  it('tiered mode rethrows real database errors instead of returning []', () => {
+    db.exec('DROP TABLE counters');
+    expect(() => searchCards(db, 'retry patterns', { fallback: 'tiered' })).toThrow(/no such table/);
+  });
+
   it('reads ranking and fallback from config when options are absent', () => {
     insertCard(db, { id: 'decision-a', type: 'decision', scope: 'project', applies_to: ['proj-a'], title: 'Retry policy', body: 'retry policy body' });
     insertCard(db, { id: 'gotcha-b', type: 'gotcha', scope: 'project', applies_to: ['proj-b'], error_signature: 'RETRY_EXHAUSTED', body: 'retry policy body' });
