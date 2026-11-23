@@ -50,7 +50,9 @@ export interface BenchmarkOptions {
 
 export interface BenchmarkReport {
   total: number;
-  /** Top-1 hits over queries that have an `expected` (every kind except `missing`). */
+  /** Queries that have an `expected` (every kind except `missing`): the denominator for `hits`. */
+  scored: number;
+  /** Top-1 hits over the `scored` queries. */
   hits: number;
   hitRatePercent: number;
   byKind: Partial<Record<BenchmarkKind, KindReport>>;
@@ -83,11 +85,21 @@ function validateEntry(item: unknown, index: number): BenchmarkQuery {
   if (kind !== undefined && !BENCHMARK_KINDS.includes(kind as BenchmarkKind)) {
     throw new Error(`${where} has an unknown "kind" (${String(kind)}); use one of ${BENCHMARK_KINDS.join(', ')}`);
   }
-  if (kind !== 'missing' && typeof v['expected'] !== 'string' && !isStringList(v['expected'])) {
+  if (kind === 'missing') {
+    if (v['expected'] !== undefined) {
+      throw new Error(`${where} is kind "missing" and must not have "expected" (no card should answer it)`);
+    }
+  } else if (typeof v['expected'] !== 'string' && !isStringList(v['expected'])) {
     throw new Error(`${where} is missing "expected" (a card id or a non-empty list of card ids)`);
   }
-  if (v['forbidden'] !== undefined && !isStringList(v['forbidden'])) {
-    throw new Error(`${where} has an invalid "forbidden" (must be a non-empty list of card ids)`);
+  if (kind === 'project_decision') {
+    if (!isStringList(v['forbidden'])) {
+      throw new Error(
+        `${where} is kind "project_decision" and requires a non-empty "forbidden" list (otherwise wrongProjectTop1Rate is always 0%)`,
+      );
+    }
+  } else if (v['forbidden'] !== undefined) {
+    throw new Error(`${where} has "forbidden", which only applies to kind "project_decision"`);
   }
   return v as unknown as BenchmarkQuery;
 }
@@ -305,6 +317,7 @@ export function runBenchmark(
 
   return {
     total: queries.length,
+    scored,
     hits,
     hitRatePercent: scored === 0 ? 0 : (hits / scored) * 100,
     byKind,
@@ -330,7 +343,7 @@ function describeGroup(g: KindReport & { kind: BenchmarkKind }): string {
 
 export function formatReport(report: BenchmarkReport): string {
   const lines = [
-    `[benchmark] ${report.hits}/${report.total} top-1 hits (${report.hitRatePercent.toFixed(1)}%)`,
+    `[benchmark] ${report.hits}/${report.scored} top-1 hits (${report.hitRatePercent.toFixed(1)}%) across ${report.scored} scored of ${report.total} queries`,
   ];
   for (const [name, g] of Object.entries(report.byGroup)) {
     lines.push(`[benchmark] ${name} (${g.kind}, n=${g.n}): ${describeGroup(g)}`);

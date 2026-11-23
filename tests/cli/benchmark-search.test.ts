@@ -7,6 +7,7 @@ import {
   findMissingExpected,
   corpusFingerprint,
   findInvisibleExpected,
+  formatReport,
   parseQueriesYaml,
   runBenchmark,
   syntheticQueries,
@@ -287,5 +288,29 @@ describe('benchmark v2', () => {
     expect(parsed[2]).toMatchObject({ kind: 'missing' });
     expect(() => parseQueriesYaml('- query: "z"\n')).toThrow(/expected/);
     expect(() => parseQueriesYaml('- query: "z"\n  kind: nope\n  expected: a\n')).toThrow(/kind/);
+  });
+
+  it('parseQueriesYaml rejects kind-specific field misuse', () => {
+    expect(() => parseQueriesYaml('- query: "z"\n  kind: project_decision\n  expected: a\n')).toThrow(/forbidden/);
+    expect(() => parseQueriesYaml('- query: "z"\n  kind: missing\n  expected: a\n')).toThrow(/missing.*expected|expected.*missing/);
+    expect(() => parseQueriesYaml('- query: "z"\n  expected: a\n  forbidden: [b]\n')).toThrow(/forbidden/);
+    expect(() => parseQueriesYaml('- query: "z"\n  kind: cross_project\n  expected: a\n  forbidden: [b]\n')).toThrow(/forbidden/);
+    expect(() =>
+      parseQueriesYaml('- query: "z"\n  kind: project_decision\n  expected: a\n  forbidden: [b]\n'),
+    ).not.toThrow();
+  });
+
+  it('headline uses scored queries (those with expected) as the denominator, not all queries', async () => {
+    writeCards({ 'pattern-alpha': { title: 'Alpha retry policy' } });
+    const db = await buildFreshIndex(store);
+    const report = runBenchmark(db, [
+      { query: 'Alpha retry policy', expected: 'pattern-alpha' },
+      { query: 'zqxv7000 error', kind: 'missing' },
+      { query: 'zqxv7013 error', kind: 'missing' },
+    ]);
+    expect(report.total).toBe(3);
+    expect(report.scored).toBe(1);
+    expect(formatReport(report).split('\n')[0]).toBe('[benchmark] 1/1 top-1 hits (100.0%) across 1 scored of 3 queries');
+    db.close();
   });
 });
