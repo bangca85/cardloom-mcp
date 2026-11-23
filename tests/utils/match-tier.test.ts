@@ -87,6 +87,9 @@ describe('helpers', () => {
     expect(containsAtBoundary('(err-42)', 'err-42')).toBe(true);
     expect(containsAtBoundary('xerr-42', 'err-42')).toBe(false);
     expect(containsAtBoundary('err-42', 'err-42')).toBe(true);
+    // first occurrence fails the boundary check, a later one passes (and the negative twin)
+    expect(containsAtBoundary('err-420 err-42', 'err-42')).toBe(true);
+    expect(containsAtBoundary('err-420 xerr-42', 'err-42')).toBe(false);
   });
 
   it('extractIdentifiers lowercases and de-duplicates', () => {
