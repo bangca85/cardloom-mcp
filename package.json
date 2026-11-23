@@ -2,7 +2,7 @@
   "name": "cardloom-mcp",
   "version": "1.0.0",
   "type": "module",
-  "description": "Local-first MCP knowledge hub for AI agents using git-backed markdown cards.",
+  "description": "Reviewed, git-backed engineering knowledge base for coding agents, served over MCP.",
   "main": "dist/index.js",
   "bin": {
     "cardloom-mcp": "bin/cardloom-mcp.mjs"
@@ -23,11 +23,15 @@
   },
   "keywords": [
     "mcp",
-    "knowledge",
+    "mcp-server",
+    "model-context-protocol",
+    "knowledge-base",
     "knowledge-cards",
+    "agent-memory",
+    "claude-code",
     "ai-agents",
     "local-first",
-    "docker"
+    "sqlite"
   ],
   "author": "CardLoom contributors",
   "license": "ISC",
