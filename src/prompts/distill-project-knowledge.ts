@@ -66,7 +66,7 @@ All cards land in draft. Never call \`update_card_status\` to verify your own ca
 
 ## Step 5 — Check for duplicates and staleness before saving
 
-Before saving a card, call \`search_knowledge\` for its topic **with \`include_drafts: true\` and \`include_deprecated: true\`**. Default search only returns \`status: verified\` cards (AD-10) — since every card this workflow produces starts as \`draft\` and stays that way until a human approves it, a default-visibility search will report zero hits even when the exact same lesson already exists as an unapproved draft from an earlier run. A "0 existing cards" result without those flags set is not evidence the hub is empty — rerun the search with both flags before trusting it.
+Before saving a card, call \`search_knowledge\` for its topic **with \`include_drafts: true\` and \`include_deprecated: true\`**. Default search only returns \`status: verified\` cards — since every card this workflow produces starts as \`draft\` and stays that way until a human approves it, a default-visibility search will report zero hits even when the exact same lesson already exists as an unapproved draft from an earlier run. A "0 existing cards" result without those flags set is not evidence the hub is empty — rerun the search with both flags before trusting it.
 
 If an existing card (draft, verified, or deprecated) says something close:
 - Same lesson, refined/corrected → save the new one with \`supersedes: <old-id>\` instead of a standalone card.

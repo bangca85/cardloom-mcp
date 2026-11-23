@@ -72,7 +72,7 @@ export function createServer(db: Database.Database, knowledgeStorePath: string):
     {
       title: 'Save Learning Draft',
       description:
-        'Save a new knowledge card. Cards from an agent always start in status "draft" (FR2) — verification is a separate, later action.',
+        'Save a new knowledge card. Cards from an agent always start in status "draft" — verification is a separate, later action.',
       inputSchema: {
         title: z.string().describe('Card title (combined with type to derive the immutable card id)'),
         type: z.enum(CARD_TYPES).describe('Card type'),
@@ -122,7 +122,7 @@ export function createServer(db: Database.Database, knowledgeStorePath: string):
     {
       title: 'Search Knowledge',
       description:
-        'Search knowledge cards by keyword or verbatim error message. Pass `context` (stack + versions read from your .knowledge-map.yaml) so results rank by facet relevance, not just text match; also pass `project` (and `aliases`) from the same file in `context`. Each result has a `match` label; `match: "related"` or `no_direct_match: true` means no card directly answers the query, and a `hint` appears when the store has no verified cards. Returns compact snippets only, never full card bodies (FR10). Every response carries a write_back_reminder: after using a returned card you MUST call report_card_usage(id, outcome).',
+        'Search knowledge cards by keyword or verbatim error message. Pass `context` (stack + versions read from your .knowledge-map.yaml) so results rank by facet relevance, not just text match; also pass `project` (and `aliases`) from the same file in `context`. Each result has a `match` label; `match: "related"` or `no_direct_match: true` means only partial matches were found, so use them as leads, not answers, and a `hint` appears when the store has no verified cards. Returns compact snippets only, never full card bodies. Every response carries a write_back_reminder: after using a returned card you MUST call report_card_usage(id, outcome).',
       inputSchema: {
         query: z.string().describe('Search query — keywords or a verbatim error message'),
         context: z
@@ -161,7 +161,7 @@ export function createServer(db: Database.Database, knowledgeStorePath: string):
     {
       title: 'Report Card Usage',
       description:
-        'Report the outcome of using a card you got from search_knowledge or get_card. This is mandatory (FR15b): every card you use, you MUST report back with confirmed (it worked), refuted (it was wrong/outdated), or neutral (inconclusive). This is how trust scores and needs_review flags stay accurate.',
+        'Report the outcome of using a card you got from search_knowledge or get_card. This is mandatory: every card you use, you MUST report back with confirmed (it worked), refuted (it was wrong/outdated), or neutral (inconclusive). This is how trust scores and needs_review flags stay accurate.',
       inputSchema: {
         id: z.string().describe('Card id'),
         // Intentionally a loose string, not z.enum — an invalid value must reach our own
@@ -202,7 +202,7 @@ export function createServer(db: Database.Database, knowledgeStorePath: string):
     new ResourceTemplate('knowledge://card/{id}', { list: undefined }),
     {
       title: 'Knowledge Card',
-      description: 'Read a single knowledge card by id — identical content to the get_card tool (AD-15).',
+      description: 'Read a single knowledge card by id — identical content to the get_card tool.',
     },
     (uri, variables) => {
       try {

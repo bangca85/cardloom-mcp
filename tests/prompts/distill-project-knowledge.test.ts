@@ -40,12 +40,12 @@ describe('buildDistillProjectKnowledgePrompt', () => {
     expect(text).toContain('Never call `update_card_status` to verify your own card.');
   });
 
-  it('warns that default search hides drafts (AD-10), so the dedup check must pass include_drafts/include_deprecated', () => {
+  it('warns that default search hides drafts, so the dedup check must pass include_drafts/include_deprecated', () => {
     const result = buildDistillProjectKnowledgePrompt({});
     const text = (result.messages[0]?.content as { text: string }).text;
     expect(text).toContain('include_drafts: true');
     expect(text).toContain('include_deprecated: true');
-    expect(text).toContain('AD-10');
+    expect(text).toContain('status: verified');
     expect(text).toContain('not evidence the hub is empty');
   });
 
