@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ValidationError, type ValidationIssue } from './errors.js';
-import { PROJECT_KEY_RE } from '../utils/facets-intersect.js';
+import { PROJECT_KEY_RE, normalizeProjectKey } from '../utils/facets-intersect.js';
 
 export const CARD_TYPES = ['decision', 'pattern', 'snippet', 'gotcha', 'playbook'] as const;
 export const CARD_SCOPES = ['project', 'stack', 'global'] as const;
@@ -158,8 +158,18 @@ export function validateCardLenient(data: unknown): LenientValidationResult {
     }
   }
 
-  // An invalid project must never make reconcile skip a hand-edited card: drop it and say so.
+  // A bad project must never make reconcile skip a hand-edited card: normalise it (coerce + warn),
+  // and only drop it, with a warning, when it is still invalid afterwards.
   if ('project' in raw) {
+    if (typeof raw.project === 'string') {
+      const normalised = normalizeProjectKey(raw.project);
+      if (normalised !== raw.project) {
+        const message = `coerced "project" from "${raw.project}" to "${normalised}"`;
+        warnings.push(message);
+        console.error(`[card-schema] ${message}`);
+        raw.project = normalised;
+      }
+    }
     const problem =
       typeof raw.project !== 'string' || !PROJECT_KEY_RE.test(raw.project)
         ? 'is not a valid project key'

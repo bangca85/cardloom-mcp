@@ -246,6 +246,31 @@ describe('validateCardLenient', () => {
     errorSpy.mockRestore();
   });
 
+  it('coerces a hand-edited project key by normalising it, with a warning', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const result = validateCardLenient(validDraftCard({ project: 'Acme/Billing' }));
+    expect(result.card.project).toBe('acme/billing');
+    expect(result.warnings).toContain('coerced "project" from "Acme/Billing" to "acme/billing"');
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('[card-schema] coerced "project"'));
+    errorSpy.mockRestore();
+  });
+
+  it('still drops a project that is invalid after normalisation, with a warning', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const result = validateCardLenient(validDraftCard({ project: '/Users/me/app' }));
+    expect(result.card.project).toBeUndefined();
+    expect(result.warnings.some((w) => w.includes('dropped "project"'))).toBe(true);
+    errorSpy.mockRestore();
+  });
+
+  it('drops a non-string project with a warning', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const result = validateCardLenient(validDraftCard({ project: 42 }));
+    expect(result.card.project).toBeUndefined();
+    expect(result.warnings.some((w) => w.includes('dropped "project"'))).toBe(true);
+    errorSpy.mockRestore();
+  });
+
   it('keeps a valid project on a project-scoped card', () => {
     const result = validateCardLenient(validDraftCard({ project: 'acme/billing-api' }));
     expect(result.card.project).toBe('acme/billing-api');
