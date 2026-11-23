@@ -40,12 +40,6 @@ project's docs and history into draft cards.
 
 ## Quickstart
 
-<!-- unpublished:start -->
-> **Not on npm yet.** The `npx` commands below work once the package is published. Until then,
-> register the server from a clone with [Option 2 (Docker)](#option-2-docker) or
-> [Option 3 (native)](#option-3-native-from-a-clone-no-docker).
-<!-- unpublished:end -->
-
 Five steps from an empty knowledge store to your first trusted card:
 
 1. Register the server with Claude Code:
@@ -81,10 +75,6 @@ Three ways to run the server, easiest first. They all expose the same 5 tools.
 Options 2 and 3 run from a clone: `git clone https://github.com/bangca85/cardloom-mcp.git && cd cardloom-mcp`.
 
 ### Option 1: npx (no clone, no Docker)
-
-<!-- unpublished:start -->
-> Available after the first npm release. Until then use Option 2 or 3.
-<!-- unpublished:end -->
 
 Needs Node 20, 22 or 24+ (CI runs 20 and 22). The launcher keeps your cards in
 `~/.cardloom/knowledge-store` and the SQLite index in `~/.cardloom/index.db`; set
