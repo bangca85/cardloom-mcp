@@ -7,6 +7,39 @@ markdown **cards** (`draft → verified → deprecated`) in a git-backed store, 
 fast search. A human reviewer approves or retires cards while the agent reads, writes drafts, and
 reports usage outcomes.
 
+## Quickstart
+
+Five steps from an empty knowledge store to your first trusted card:
+
+1. Register the server with Claude Code:
+
+   ```bash
+   claude mcp add cardloom -- npx -y cardloom-mcp
+   ```
+
+2. Check the store: `npx cardloom-mcp doctor` prints where the store lives, how many cards it holds
+   by status, and, while nothing is verified yet, a hint pointing back here. It is read-only.
+3. Ask your agent to save one gotcha it just hit, for example: "Save what we learned about this
+   error as a gotcha card, and put the exact error message in `error_signature`." The agent calls
+   `save_learning_draft`; the card lands as `draft`.
+4. Approve it in chat: "Verify that card." The agent calls `update_card_status` with action
+   `verify`. Nothing is trusted until you do this (see [Approving knowledge in chat](#approving-knowledge-in-chat)).
+5. Search for it: ask the agent to call `search_knowledge` with the exact `error_signature` text you
+   saved. With default settings the card comes back with `match: "exact_signature"`.
+
+To rank results for the repo you are working in, add a `.knowledge-map.yaml` at that repo's root
+(details in [`.knowledge-map.yaml`](#knowledge-mapyaml--giving-the-agent-context-per-repo)):
+
+```yaml
+project: acme/billing-api
+stack:
+  - node
+domain: backend
+```
+
+> The `cardloom-mcp` npm package is not published yet. Until it is, use the [Setup](#setup)
+> section below to register the server.
+
 ## Setup
 
 1. Build the server:
@@ -398,6 +431,7 @@ npm run dev            # tsx watch src/index.ts (runs on the host, no Docker)
 npm test                # vitest run
 npm run rebuild-index   # rebuild index.db from cards/ + events/
 npm run benchmark       # measure top-1 hit rate + latency against benchmark/queries.yaml
+npm run doctor          # read-only store health check (path, git, card counts by status)
 docker compose build && docker compose run --rm -i cardloom-mcp
 ```
 
