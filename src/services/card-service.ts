@@ -25,6 +25,9 @@ function cardToFrontmatter(card: Card): Record<string, unknown> {
     conflicts_with: card.conflicts_with,
     sensitivity: card.sensitivity,
     source_commit: card.source_commit,
+    // Listed here or lost: this builder is a whitelist, and a field missing from it is dropped on
+    // every save AND every status change, so the card a merge promotion reads no longer names its repo.
+    source_repo: card.source_repo,
     provenance: card.provenance,
     title: card.title,
     domain: card.domain,
@@ -58,6 +61,7 @@ export interface SaveLearningDraftInput {
   conflicts_with?: string[];
   sensitivity?: Card['sensitivity'];
   source_commit: string;
+  source_repo?: string;
   provenance: string;
 }
 
@@ -91,6 +95,7 @@ export async function saveLearningDraft(
     version_range: input.version_range,
     sensitivity: input.sensitivity ?? 'normal',
     source_commit: input.source_commit,
+    source_repo: input.source_repo,
     provenance: input.provenance,
     title: input.title,
     domain: input.domain,

@@ -12,6 +12,7 @@
     "start": "node dist/index.js",
     "rebuild-index": "node dist/cli/rebuild-index.js",
     "benchmark": "node dist/cli/benchmark.js",
+    "promote-merged": "node dist/cli/promote-merged.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "web": "tsx src/web/server.ts"

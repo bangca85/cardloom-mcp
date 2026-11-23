@@ -87,7 +87,17 @@ export function createServer(db: Database.Database, knowledgeStorePath: string):
           .describe('Id of an existing card this one supersedes — recorded as a pending marker only; the old card is left unchanged'),
         conflicts_with: z.array(z.string()).optional().describe('Ids explicitly declared as conflicting with this card'),
         sensitivity: z.enum(CARD_SENSITIVITIES).optional().describe('Defaults to "normal"'),
-        source_commit: z.string().describe('Commit or context this learning came from'),
+        source_commit: z
+          .string()
+          .describe(
+            'Commit this learning came from: a bare sha (7-40 hex), nothing else, when there is one. Free text here ("working tree", "local changes") means merge promotion can never verify the card.',
+          ),
+        source_repo: z
+          .string()
+          .optional()
+          .describe(
+            'GitHub "owner/name" of the repo source_commit belongs to. Set it whenever source_commit is a sha: it is how merge promotion finds the commit and checks it reached the default branch.',
+          ),
         provenance: z.string().describe('How this learning was derived'),
       },
     },
@@ -161,6 +171,12 @@ export function createServer(db: Database.Database, knowledgeStorePath: string):
         action: z.string().describe('One of: verify, deprecate'),
         reason: z.string().optional().describe('Required when action is "deprecate"'),
         by: z.string().optional().describe('Who performed this action — defaults to REVIEWER_NAME or "human-reviewer"'),
+        verification_method: z
+          .string()
+          .optional()
+          .describe(
+            'How the card was verified, for action "verify" — defaults to "chat-approval". When approving a candidate from `npm run promote-merged`, pass the evidence it printed (e.g. "merged:owner/repo@sha+chat-approval").',
+          ),
       },
     },
     withErrorBoundary((args) => handleUpdateCardStatus(db, knowledgeStorePath, args)),

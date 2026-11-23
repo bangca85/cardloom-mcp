@@ -6,6 +6,7 @@ export interface UpdateCardStatusArgs {
   action: string;
   reason?: string;
   by?: string;
+  verification_method?: string;
 }
 
 export async function handleUpdateCardStatus(
@@ -18,6 +19,7 @@ export async function handleUpdateCardStatus(
     action: args.action,
     ...(args.reason !== undefined && { reason: args.reason }),
     ...(args.by !== undefined && { by: args.by }),
+    ...(args.verification_method !== undefined && { method: args.verification_method }),
   };
 
   const result = await updateCardStatus(db, storePath, input);

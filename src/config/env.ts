@@ -46,4 +46,47 @@ export const config = {
   get maxSharedStackEdges(): number {
     return parsePositiveIntEnv(process.env['MAX_SHARED_STACK_EDGES'], 5000);
   },
+  /**
+   * What `npm run promote-merged` does with a draft whose source commit reached its repo's
+   * default branch AFTER the card was written:
+   *   off    — nothing; the CLI exits without looking.
+   *   review — lists them as candidates; a human approves in chat (the pre-2026-11-17 rule).
+   *   auto   — verifies the auto-eligible ones itself (see promotionAutoTypes), lists the rest.
+   * Default is `review`: an unknown or empty value must never widen into auto-verification.
+   */
+  get promotionMode(): PromotionMode {
+    const raw = (process.env['PROMOTION_MODE'] ?? '').trim().toLowerCase();
+    return raw === 'off' || raw === 'auto' ? raw : 'review';
+  },
+  /** Directories scanned (3 levels deep) for local clones whose folder name matches a card's repo. */
+  get promotionRepoRoots(): string[] {
+    return splitList(process.env['PROMOTION_REPO_ROOTS'], ':');
+  },
+  /**
+   * Card types `auto` may verify. decision/pattern describe the change itself, so "the change was
+   * reviewed and merged" is evidence for them; a gotcha or playbook usually describes some OTHER
+   * system's behaviour, which a merge says nothing about.
+   */
+  get promotionAutoTypes(): string[] {
+    const list = splitList(process.env['PROMOTION_AUTO_TYPES'], ',').map((t) => t.toLowerCase());
+    return list.length > 0 ? list : ['decision', 'pattern'];
+  },
+  /** `git fetch origin` each local clone before checking it. Off means a stale clone says "not merged yet". */
+  get promotionFetch(): boolean {
+    return (process.env['PROMOTION_FETCH'] ?? '1').trim() !== '0';
+  },
+  /** Name written to `verified_by` by an automatic verify, so trust and audit can tell it from a person. */
+  get promotionBotName(): string {
+    return process.env['PROMOTION_BOT_NAME'] ?? 'merge-bot';
+  },
 } as const;
+
+export type PromotionMode = 'off' | 'review' | 'auto';
+
+function splitList(raw: string | undefined, sep: string): string[] {
+  if (raw === undefined || raw.trim() === '') return [];
+  return raw
+    .split(sep)
+    .map((s) => s.trim())
+    .filter((s) => s !== '');
+}

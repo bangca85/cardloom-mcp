@@ -1,3 +1,5 @@
+x
+
 # cardloom-mcp
 
 MCP Knowledge Hub: long-lived, cross-project technical memory for an AI agent. Knowledge lives as
@@ -56,6 +58,44 @@ reports usage outcomes.
    `get_card`, `save_learning_draft`, `update_card_status`, `report_card_usage` — plus one
    resource template, `knowledge://card/{id}`, and one Prompt, `distill_project_knowledge`
    (see [Ingesting an existing project](#ingesting-an-existing-project)).
+
+### Native (no Docker)
+
+Docker on macOS runs a Linux VM (Virtualization.framework) underneath, which reserves several GB
+of RAM regardless of how small the container's own workload is. The server itself is light —
+measured at ~100MB RSS for the MCP process and ~71MB for the web viewer, both idle at 0% CPU — so
+running directly on the host with plain `node` skips the VM overhead entirely.
+
+```bash
+npm install
+npm run build
+```
+
+Register the server with your MCP client using `node` directly instead of the Docker wrapper:
+
+```json
+{
+  "mcpServers": {
+    "cardloom": {
+      "command": "node",
+      "args": ["/absolute/path/to/cardloom-mcp/dist/index.js"],
+      "env": {
+        "KNOWLEDGE_STORE_PATH": "/absolute/path/to/cardloom-mcp/knowledge-store",
+        "INDEX_DB_PATH": "/absolute/path/to/cardloom-mcp/.metadata/index.db"
+      }
+    }
+  }
+}
+```
+
+For the web viewer, run `npm run web` (or `node dist/web/server.js`) with the same two env vars
+set, plus `PORT` if you don't want the default `3334`.
+
+Trade-off: you lose container isolation and `git commit`s use your host's git config (which
+actually matches AD-11 more closely — push/pull was always the host's job). The
+`.metadata/index.db` + write lock land on your local filesystem instead of a named Docker
+volume — on macOS this sidesteps the virtiofs bind-mount hazard AD-16 warns about for the
+containerized path, since there's no bind mount involved at all.
 
 Each MCP session starts a fresh container (`docker compose run --rm -i`) that exits when the
 client disconnects. Cards live in `./knowledge-store` (bind mount, human-editable, git-tracked);
@@ -161,7 +201,9 @@ a `write_back_reminder`; skipping it lets trust scores and `needs_review` flags 
 
 **Learned something new** (a decision, pattern, or gotcha with no existing card, or a refinement
 of an existing one) → call `save_learning_draft`. It always lands as `draft` — never verify it
-yourself.
+yourself. Put a bare commit sha in `source_commit` and the repo's GitHub `owner/name` in
+`source_repo` whenever the learning comes from a commit: that is what lets merge promotion find
+it. Free text there ("working tree", "local changes") means the card can only ever be approved by hand.
 
 **Found a major mismatch between a `verified` card and current reality** (the card says A, the
 code/logs/API actually do B — a real contradiction, not a nuance): **stop, don't silently trust
@@ -207,6 +249,54 @@ automatically (FR2). To promote or retire one:
 
 `deprecated` is terminal — there's no un-deprecate. To bring a retired idea back, save a new card
 with `supersedes` pointing at the old one and approve it.
+
+## Merge promotion (`npm run promote-merged`)
+
+A draft whose source commit went through its own repo's review and merge has a second piece of
+evidence besides your chat approval. `promote-merged` (host-side CLI — it reads your other clones
+and calls `gh`, which the container never can) finds those drafts and, depending on
+`PROMOTION_MODE`, lists or verifies them.
+
+| `PROMOTION_MODE` | What happens |
+| --- | --- |
+| `off` | Nothing. |
+| `review` (default) | Lists merged drafts as candidates. You approve in chat; the agent calls `update_card_status(id, "verify", verification_method="<evidence>+chat-approval")`. |
+| `auto` | Verifies the eligible ones itself, `verified_by: merge-bot`, `verification_method: merged:<repo>@<sha> (<via> <date>)`. Lists the rest as candidates. |
+
+**"Merged" means the commit entered the default branch AFTER the card was written** (card date =
+its `knowledge: add` commit in the store). A card about code already on `main` records main's
+HEAD, which is trivially "merged"; counting that would verify every observation on save. How a
+commit's arrival is dated: on the first-parent line → its own date; brought in by a merge → the
+merge commit's date; not in the clone at all (squash merge) → the GitHub pull request's `merged_at`.
+
+`auto` never verifies, and always leaves as a candidate:
+
+- a type outside `PROMOTION_AUTO_TYPES` (default `decision,pattern` — a merge is evidence about
+  the change itself, not about a third-party system a gotcha describes);
+- a `restricted` card;
+- a card with `supersedes` — verifying it deprecates the old card (AD-13), and an unapproved draft
+  must never kill a verified card.
+
+Skipped outright: `source_commit` without a sha, a learning from uncommitted work on top of a sha,
+a commit not merged yet, a repo that cannot be found.
+
+| Env | Default | Meaning |
+| --- | --- | --- |
+| `PROMOTION_MODE` | `review` | `off` / `review` / `auto`; anything else reads as `review` |
+| `PROMOTION_REPO_ROOTS` | — | `:`-separated dirs scanned 3 levels deep for clones named like the card's repo |
+| `PROMOTION_AUTO_TYPES` | `decision,pattern` | card types `auto` may verify |
+| `PROMOTION_FETCH` | `1` | `git fetch origin` each matched clone first; `0` = trust its current refs |
+| `PROMOTION_BOT_NAME` | `merge-bot` | `verified_by` written by `auto` |
+
+```bash
+npm run build
+npm run promote-merged -- --dry-run          # auto mode prints would_verify, writes nothing
+npm run promote-merged -- --mode=review --json
+```
+
+> Note: an auto-verified card can be undone only like any verified card — `deprecate` it, or
+> `git revert` its `knowledge: verify` commit in the store and `npm run rebuild-index`.
+> There is no way back to `draft` (AD-9).
 
 ## Rebuilding the index
 

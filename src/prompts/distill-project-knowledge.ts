@@ -50,7 +50,8 @@ Call \`save_learning_draft\` per card, no placeholders:
 - \`stack\`: real tech tags relevant to this lesson (e.g. ["nextjs", "postgres"])
 - \`applies_to\` / \`scope\`: where this actually applies — this project/module by name, or global if it generalizes
 - \`version_range\`: the semver range this lesson holds true for
-- \`source_commit\`: the specific commit hash if you have one, else the current HEAD
+- \`source_commit\`: the specific commit hash if you have one, else the current HEAD — a bare sha, no prose around it
+- \`source_repo\`: the GitHub "owner/name" that commit lives in (lets merge promotion find it)
 - \`provenance\`: exactly where this came from — file path, doc section, commit hash, or "claude-mem observation <id>"
 
 Write \`body\` in structured Markdown — never one continuous block of prose. Break it into \`##\` sections; adapt names to the card type but always separate concerns, e.g.:

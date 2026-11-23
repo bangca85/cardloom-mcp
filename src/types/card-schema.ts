@@ -20,6 +20,13 @@ function baseFields() {
     conflicts_with: z.array(z.string()).default([]),
     sensitivity: z.enum(CARD_SENSITIVITIES),
     source_commit: z.string(),
+    // `owner/name` of the repo `source_commit` lives in. Optional because 300+ cards predate it;
+    // without it, merge promotion has to guess the repo from `applies_to`, and a bare name like
+    // "billing-api" can match two local clones (e.g. under work/ and forks/) — so new cards should set it.
+    source_repo: z
+      .string()
+      .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, 'source_repo must be "owner/name"')
+      .optional(),
     provenance: z.string(),
     title: z.string().min(1),
     domain: z.enum(CARD_DOMAINS).optional(),
