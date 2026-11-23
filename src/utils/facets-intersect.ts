@@ -40,3 +40,38 @@ export function versionRangesIntersect(a: string | undefined | null, b: string |
 export function facetsIntersect(a: FacetSet, b: FacetSet): boolean {
   return arraysIntersect(a.stack, b.stack) && scopesIntersect(a, b) && versionRangesIntersect(a.version_range, b.version_range);
 }
+
+// --- Project key and scope layers -------------------------------------------
+
+export const PROJECT_KEY_RE = /^[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)?$/;
+
+export function normalizeProjectKey(raw: string): string {
+  return raw.trim().toLowerCase().replace(/\s+/g, '-');
+}
+
+export type ScopeLayer = 'this_project' | 'shared' | 'other_project' | 'unknown';
+
+export interface CallerProject {
+  project?: string;
+  aliases?: string[];
+}
+
+export function classifyScopeLayer(
+  card: { scope: FacetSet['scope']; project?: string | null; applies_to: string[] },
+  caller: CallerProject,
+): ScopeLayer | null {
+  const callerProject = typeof caller.project === 'string' ? normalizeProjectKey(caller.project) : '';
+  if (callerProject === '') return null;
+  if (card.scope !== 'project') return 'shared';
+
+  const callerKeys = new Set<string>([callerProject]);
+  for (const alias of caller.aliases ?? []) {
+    const key = normalizeProjectKey(alias);
+    if (key !== '') callerKeys.add(key);
+  }
+
+  if (typeof card.project === 'string' && normalizeProjectKey(card.project) !== '') {
+    return callerKeys.has(normalizeProjectKey(card.project)) ? 'this_project' : 'other_project';
+  }
+  return card.applies_to.some((value) => callerKeys.has(normalizeProjectKey(value))) ? 'this_project' : 'unknown';
+}

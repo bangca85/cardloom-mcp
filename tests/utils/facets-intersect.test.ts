@@ -4,6 +4,9 @@ import {
   scopesIntersect,
   versionRangesIntersect,
   facetsIntersect,
+  classifyScopeLayer,
+  normalizeProjectKey,
+  PROJECT_KEY_RE,
   type FacetSet,
 } from '../../src/utils/facets-intersect';
 
@@ -122,5 +125,41 @@ describe('facetsIntersect', () => {
     const a = facet({ scope: 'global', applies_to: [] });
     const b = facet({ scope: 'project', applies_to: ['app-a'] });
     expect(facetsIntersect(a, b)).toBe(true);
+  });
+});
+
+describe('project key and scope layers', () => {
+  const caller = { project: 'acme/billing-api', aliases: ['billing-api'] };
+  it('legacy card matches through an alias', () =>
+    expect(classifyScopeLayer({ scope: 'project', applies_to: ['billing-api', 'cmd/api'] }, caller)).toBe('this_project'));
+  it('case and spacing are normalised (Review Focus 4)', () =>
+    expect(classifyScopeLayer({ scope: 'project', applies_to: ['widgetkit'] }, { project: 'WidgetKit' })).toBe('this_project'));
+  it('legacy card with only paths is unknown, not other_project', () =>
+    expect(classifyScopeLayer({ scope: 'project', applies_to: ['lib/core/db', 'test/'] }, caller)).toBe('unknown'));
+  it('card with an explicit other project key is other_project', () =>
+    expect(classifyScopeLayer({ scope: 'project', project: 'notes-app', applies_to: ['Notes-App'] }, caller)).toBe('other_project'));
+  it('explicit project wins over applies_to', () =>
+    expect(classifyScopeLayer({ scope: 'project', project: 'notes-app', applies_to: ['billing-api'] }, caller)).toBe('other_project'));
+  it('stack and global cards are shared', () => {
+    expect(classifyScopeLayer({ scope: 'stack', applies_to: ['Notes-App'] }, caller)).toBe('shared');
+    expect(classifyScopeLayer({ scope: 'global', applies_to: [] }, caller)).toBe('shared');
+  });
+  it('no caller project → null', () =>
+    expect(classifyScopeLayer({ scope: 'project', applies_to: ['x'] }, {})).toBeNull());
+  it('blank caller project → null', () =>
+    expect(classifyScopeLayer({ scope: 'project', applies_to: ['x'] }, { project: '   ' })).toBeNull());
+  it('never prefix-matches sub-paths against a short key', () =>
+    expect(classifyScopeLayer({ scope: 'project', applies_to: ['lib/core/db'] }, { project: 'lib' })).toBe('unknown'));
+  it('blank aliases are ignored', () =>
+    expect(classifyScopeLayer({ scope: 'project', applies_to: [''] }, { project: 'acme/x', aliases: ['', '  '] })).toBe('unknown'));
+  it('explicit card project matches through an alias', () =>
+    expect(classifyScopeLayer({ scope: 'project', project: 'Billing-API', applies_to: [] }, caller)).toBe('this_project'));
+  it('normalizeProjectKey trims, lowercases and dashes whitespace', () =>
+    expect(normalizeProjectKey('  Acme  Billing API ')).toBe('acme-billing-api'));
+  it('PROJECT_KEY_RE rejects absolute paths and spaces', () => {
+    expect(PROJECT_KEY_RE.test('acme/billing-api')).toBe(true);
+    expect(PROJECT_KEY_RE.test('notes-app')).toBe(true);
+    expect(PROJECT_KEY_RE.test('/Users/me/app')).toBe(false);
+    expect(PROJECT_KEY_RE.test('my app')).toBe(false);
   });
 });
