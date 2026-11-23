@@ -80,13 +80,22 @@ describe('config search env getters', () => {
     expect(config.searchRanking).toBe(expected);
   });
 
-  it('searchFallback defaults to off', () => {
-    expect(config.searchFallback).toBe('off');
+  it('searchFallback defaults to tiered (AD-10 decision, 2026-11-24)', () => {
+    expect(config.searchFallback).toBe('tiered');
+    process.env['SEARCH_FALLBACK'] = '';
+    expect(config.searchFallback).toBe('tiered');
     process.env['SEARCH_FALLBACK'] = 'nope';
-    expect(config.searchFallback).toBe('off');
+    expect(config.searchFallback).toBe('tiered');
   });
 
-  it('searchFallback is case-insensitive', () => {
+  it('searchFallback can be switched off, case-insensitively and ignoring whitespace', () => {
+    for (const raw of ['off', 'OFF', ' Off ']) {
+      process.env['SEARCH_FALLBACK'] = raw;
+      expect(config.searchFallback).toBe('off');
+    }
+  });
+
+  it('searchFallback is case-insensitive for tiered', () => {
     process.env['SEARCH_FALLBACK'] = 'TIERED';
     expect(config.searchFallback).toBe('tiered');
   });

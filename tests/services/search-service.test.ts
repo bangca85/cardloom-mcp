@@ -61,9 +61,10 @@ function insertCounters(db: Database.Database, cardId: string, usage: number, su
 }
 
 /**
- * Six cards with varied facets, ranks and trust, used by the Task 4 tests. The default-order
- * snapshots below were recorded against the pre-Task-4 search-service (AND query, facetMatch →
- * ftsRank → trust) and must never change while SEARCH_RANKING/SEARCH_FALLBACK stay at defaults.
+ * Six cards with varied facets, ranks and trust, used by the Task 4 tests. The order snapshots below
+ * were recorded against the pre-Task-4 search-service (AND query, facetMatch → ftsRank → trust).
+ * They now pin `fallback: 'off'`, the opt-out that must keep reproducing that behaviour exactly; the
+ * default became `tiered` on 2026-11-24 (AD-10).
  */
 function seedSix(db: Database.Database): void {
   insertCard(db, { id: 'pattern-s1', stack: ['node'], scope: 'project', applies_to: ['api'], title: 'Backoff loops', body: 'retry retry retry patterns with backoff' });
@@ -224,9 +225,9 @@ describe('searchCards — tiered fallback, ranking modes, scope layers (Task 4)'
     db.close();
   });
 
-  it('defaults reproduce the previous order exactly', () => {
+  it('fallback off reproduces the previous AND-only order exactly', () => {
     // Recorded against the pre-Task-4 search-service before any src/ change (see task-4-report.md).
-    expect(searchCards(db, 'retry patterns', {}).map((r) => r.id)).toEqual([
+    expect(searchCards(db, 'retry patterns', { fallback: 'off' }).map((r) => r.id)).toEqual([
       'pattern-s2',
       'decision-s3',
       'pattern-s1',
@@ -235,25 +236,31 @@ describe('searchCards — tiered fallback, ranking modes, scope layers (Task 4)'
       'gotcha-s4',
     ]);
     expect(
-      searchCards(db, 'retry patterns', { context: { stack: ['node'], versions: { node: '^20.0.0' } } }).map((r) => r.id),
+      searchCards(db, 'retry patterns', { fallback: 'off', context: { stack: ['node'], versions: { node: '^20.0.0' } } }).map((r) => r.id),
     ).toEqual(['decision-s3', 'pattern-s1', 'pattern-s5', 'pattern-s6', 'pattern-s2', 'gotcha-s4']);
-    expect(searchCards(db, 'retry patterns', { limit: 3 }).map((r) => r.id)).toEqual([
+    expect(searchCards(db, 'retry patterns', { fallback: 'off', limit: 3 }).map((r) => r.id)).toEqual([
       'pattern-s2',
       'decision-s3',
       'pattern-s1',
     ]);
   });
 
-  it('explicit baseline/off options match the defaults', () => {
+  it('defaults are baseline ranking with tiered fallback (AD-10, 2026-11-24)', () => {
     const ctx = { stack: ['node'], versions: { node: '^20.0.0' } };
     const defaults = searchCards(db, 'retry patterns', { context: ctx }).map((r) => r.id);
-    const explicit = searchCards(db, 'retry patterns', { context: ctx, ranking: 'baseline', fallback: 'off' }).map((r) => r.id);
+    const explicit = searchCards(db, 'retry patterns', { context: ctx, ranking: 'baseline', fallback: 'tiered' }).map((r) => r.id);
     expect(explicit).toEqual(defaults);
+  });
+
+  it('with no options, a query carrying extra words still finds the card and labels it', () => {
+    insertCard(db, { id: 'gotcha-default-err42', type: 'gotcha', error_signature: 'ERR-42', title: 'Payment ERR-42' });
+    const r = searchCards(db, 'Error: ERR-42 at line 8');
+    expect(r.find((x) => x.id === 'gotcha-default-err42')?.match).toBe('exact_signature');
   });
 
   it('tiered fallback finds a card the AND query misses and labels it exact_signature', () => {
     insertCard(db, { id: 'gotcha-err42', type: 'gotcha', error_signature: 'ERR-42', title: 'Payment ERR-42' });
-    expect(searchCards(db, 'Error: ERR-42 at line 8', {})).toEqual([]);
+    expect(searchCards(db, 'Error: ERR-42 at line 8', { fallback: 'off' })).toEqual([]);
     const r = searchCards(db, 'Error: ERR-42 at line 8', { fallback: 'tiered' });
     expect(r[0]).toMatchObject({ id: 'gotcha-err42', match: 'exact_signature' });
   });
@@ -265,10 +272,10 @@ describe('searchCards — tiered fallback, ranking modes, scope layers (Task 4)'
   });
 
   it('fallback off only returns AND rows, so no result is ever related', () => {
-    const r = searchCards(db, 'retry patterns', {});
+    const r = searchCards(db, 'retry patterns', { fallback: 'off' });
     expect(r.length).toBeGreaterThan(0);
     expect(r.every((x) => x.match === 'all_terms' || x.match.startsWith('exact_'))).toBe(true);
-    expect(searchCards(db, 'zqxv7000 retry patterns', {})).toEqual([]);
+    expect(searchCards(db, 'zqxv7000 retry patterns', { fallback: 'off' })).toEqual([]);
   });
 
   it('tiered keeps the AND path when the AND set already fills the limit', () => {

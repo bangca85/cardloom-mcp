@@ -47,7 +47,8 @@ export const config = {
     return parsePositiveIntEnv(process.env['MAX_SHARED_STACK_EDGES'], 5000);
   },
   /**
-   * Result ordering for searchCards (AD-10 default stays `baseline` until a benchmark decision):
+   * Result ordering for searchCards. AD-10 decision (2026-11-24): the default stays `baseline`; `x` and `y`
+   * are opt-in because putting the project layer before the BM25 score buried shared cards in the benchmark.
    *   baseline — facetMatch → ftsRank → trust (the original order).
    *   x        — scopeRank → match tier → ftsRank → trust.
    *   y        — match tier → scopeRank → ftsRank → trust.
@@ -57,10 +58,14 @@ export const config = {
     const raw = (process.env['SEARCH_RANKING'] ?? '').trim().toLowerCase();
     return raw === 'x' || raw === 'y' ? raw : 'baseline';
   },
-  /** `tiered` adds an OR-query fallback when the AND query returns fewer than `limit` rows. Unknown or empty → `off`. */
+  /**
+   * `tiered` (the default since the 2026-11-24 AD-10 decision) adds an OR-query fallback when the AND query
+   * returns fewer than `limit` rows; every result then carries a `match` label and partial matches are
+   * labelled `related`. `off` restores the original AND-only behaviour. Unknown or empty → `tiered`.
+   */
   get searchFallback(): SearchFallbackMode {
     const raw = (process.env['SEARCH_FALLBACK'] ?? '').trim().toLowerCase();
-    return raw === 'tiered' ? 'tiered' : 'off';
+    return raw === 'off' ? 'off' : 'tiered';
   },
   /**
    * What `npm run promote-merged` does with a draft whose source commit reached its repo's
