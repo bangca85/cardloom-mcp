@@ -334,6 +334,38 @@ cards:
   expected: gotcha-foo-undefined-crash
 ```
 
+Each entry may also carry a `kind` (default `known`, so entries with just `query` + `expected` keep
+working), an `expected` list, and `forbidden` ids:
+
+```yaml
+- query: "retry policy for payments"
+  kind: project_decision                      # known | missing | project_decision | cross_project
+  expected: decision-payments-retry
+  forbidden: [decision-billing-retry]         # top-1 here counts as a wrong-project answer
+  context: { project: acme/payments-api, stack: [node] }
+- query: "how do we shard the queue"
+  kind: cross_project
+  expected: [pattern-queue-sharding, gotcha-hot-partition]   # recall@5 counts any of these
+- query: "zqxv7000 error"
+  kind: missing                               # no card should answer this; no `expected`
+```
+
+Per kind the report gives `n` plus: `known` / `cross_project` hit@1, MRR@5, recall@5 (any id in
+`expected`); `missing` `falseAnswerRate` (share whose top-1 is not labelled `related`) and
+`anyResultRate` (share returning at least one result); `project_decision` hit@1 and
+`wrongProjectTop1Rate` (share whose top-1 is in `forbidden`). The two questions that decide the
+AD-10 visibility call are `wrongProjectTop1Rate` (project_decision) and `recall5` (cross_project).
+
+`--synthetic` skips `queries.yaml` and derives a suite from the store (verified + normal cards
+only): `title` (verbatim), `title_nl` (natural-language paraphrase), `sig_noisy` (a noisy pasted
+error line, gotchas only) and 100 `missing` queries built from fabricated tokens, each checked to
+have zero full-text hits. `--matrix` runs the same queries under `baseline/off`,
+`baseline/tiered`, `x/tiered` and `y/tiered` (ranking/fallback) and prints one row per config:
+
+```bash
+npm run build && npm run benchmark -- --synthetic --matrix
+```
+
 Write queries the way you'd actually ask — real questions, real pasted error messages — each
 pointing at the card id you expect to come back first. Multiple queries can point at the same
 card.
@@ -352,9 +384,10 @@ line (card count, verified count, sha256 over `id|status|file_mtime`) before the
 
 It runs every query through the exact same `search_knowledge` ranking path (no separate scoring
 logic to drift out of sync) and reports top-1 hit rate, p50/p95 latency, and a list of misses. A
-low hit rate is a signal to add facets or fix a card, not a failure. If any `expected` card id in
+low hit rate is a signal to add facets or fix a card, not a failure. If any `expected` or `forbidden` card id in
 `benchmark/queries.yaml` has no card in the store, the benchmark lists those ids and exits with
-code 2 without scoring. Other operational problems (corrupt YAML, unreadable store) exit 1. If
+code 2 without scoring. Expected ids that exist but default search would never return (not
+`verified`, or `restricted`) only print a warning. Other operational problems (corrupt YAML, unreadable store) exit 1. If
 `benchmark/queries.yaml` doesn't exist yet, it says so and exits cleanly instead of erroring.
 
 ## Commands
