@@ -1,26 +1,7 @@
-node_modules/
-coverage/
-*.tsbuildinfo
-.env
-.env.*
-
-knowledge-store/
-.metadata/
-*.db
-*.sqlite
-*.db-wal
-*.db-shm
-*.db-journal
-
-docs/
-CLAUDE.md
-.claude/
-.agent/
-.agents/
-.codex/
-_bmad/
-design-system/
-
-.DS_Store
-*.log
-*.tgz
+# Allowlist: send the builder only what the Dockerfile copies. Anything else in the working
+# directory (git history, local maps and tokens, data, backups, notes) never enters the build context.
+*
+!package.json
+!package-lock.json
+!dist/
+!docker-entrypoint.sh

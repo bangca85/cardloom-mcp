@@ -39,3 +39,8 @@ design-system/
 *.tgz
 
 graphify/*
+
+# Local-only files that must never be committed or sent to a build.
+.knowledge-map.yaml
+.npmrc
+.superpowers/
