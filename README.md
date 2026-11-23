@@ -1,5 +1,3 @@
-x
-
 # cardloom-mcp
 
 MCP Knowledge Hub: long-lived, cross-project technical memory for an AI agent. Knowledge lives as
@@ -8,6 +6,10 @@ fast search. A human reviewer approves or retires cards while the agent reads, w
 reports usage outcomes.
 
 ## Quickstart
+
+> **Note:** the `cardloom-mcp` npm package is not published yet. The `npx` commands in step 1 and
+> step 2 apply after the first release. Until then, register the server with
+> [Option 2 (Docker)](#option-2-docker) or [Option 3](#option-3-native-from-a-clone-no-docker) from the Setup section.
 
 Five steps from an empty knowledge store to your first trusted card:
 
@@ -27,7 +29,7 @@ Five steps from an empty knowledge store to your first trusted card:
 5. Search for it: ask the agent to call `search_knowledge` with the exact `error_signature` text you
    saved. With default settings the card comes back with `match: "exact_signature"`.
 
-To rank results for the repo you are working in, add a `.knowledge-map.yaml` at that repo's root
+To label results for the repo you are working in, add a `.knowledge-map.yaml` at that repo's root
 (details in [`.knowledge-map.yaml`](#knowledge-mapyaml--giving-the-agent-context-per-repo)):
 
 ```yaml
@@ -45,6 +47,10 @@ domain: backend
 Three ways to run the server, easiest first. They all expose the same 5 tools.
 
 ### Option 1: npx (no clone, no Docker)
+
+> **Note:** the `cardloom-mcp` npm package is not published yet. These `npx` commands apply after
+> the first release; until then use [Option 2 (Docker)](#option-2-docker) or
+> [Option 3](#option-3-native-from-a-clone-no-docker).
 
 Needs Node 20+. The launcher keeps your cards in `~/.cardloom/knowledge-store` and the SQLite
 index in `~/.cardloom/index.db`; set `KNOWLEDGE_STORE_PATH` / `INDEX_DB_PATH` to put them elsewhere.
@@ -213,8 +219,8 @@ domain: backend
 ```
 
 `project:` is the key the agent passes as `context.project` (and `aliases:` as `context.aliases`)
-so results can be labelled by scope (this project, shared, other project) and ranked for this
-project; cards for other projects are never hidden.
+so results are labelled by scope (this project, shared, other project); they are ranked by project
+only when `SEARCH_RANKING` is set to `x` or `y`. Cards for other projects are never hidden.
 Older maps that use `repo:` instead of `project:` are still accepted by clients.
 
 Workflow for a brand-new repo:
@@ -240,7 +246,7 @@ same repo, paste it into both files.
 **Before answering/implementing a task touching a known domain** (auth, rate-limiting,
 third-party API contracts, infra gotchas, etc.): call `search_knowledge(query, context)` first,
 with `context` read from `.knowledge-map.yaml` at this repo's root (stack/versions, plus
-`project` and `aliases` so results can be ranked for this repo). A result with `match: related`,
+`project` and `aliases` so results are labelled by scope for this repo, and ranked by project when `SEARCH_RANKING` is `x` or `y`). A result with `match: related`,
 or a response with `no_direct_match: true`, means no card answers this yet — don't treat it as an answer.
 **If that file doesn't exist yet**, generate a draft yourself before proceeding — inspect this
 repo's manifest (package.json / pubspec.yaml / go.mod / requirements.txt, lockfiles) for the
