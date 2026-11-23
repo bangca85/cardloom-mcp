@@ -2,10 +2,11 @@
 
 [![CI](https://github.com/bangca85/cardloom-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/bangca85/cardloom-mcp/actions/workflows/ci.yml)
 
-**A reviewed engineering knowledge base for coding agents.** Your agent searches it before it
-answers and proposes what it learned as *draft* cards; nothing is trusted until you approve it.
-Cards are plain markdown in a git repository, and search is a local SQLite index with no LLM on
-the read path. It works with any MCP client, such as Claude Code, Cursor or Codex.
+**Save engineering decisions and fixes your coding agent can look up later.** Give your agent
+instructions to search before answering and to save new lessons as draft cards. Search returns verified
+cards by default, and you decide what gets verified. Cards are plain markdown in a git repository, and
+search is a local SQLite index with no LLM on the read path. It works with any MCP client, such as
+Claude Code, Cursor or Codex.
 
 ## How it works
 
@@ -13,7 +14,8 @@ the read path. It works with any MCP client, such as Claude Code, Cursor or Code
   `error_signature`), `pattern`, `playbook` or `snippet`, tagged with the stack, versions and project
   it applies to.
 - **Lifecycle.** `draft → verified → deprecated`. An agent can only create drafts; a human approves
-  (`verified`) or retires (`deprecated`) them. Deprecated is final and the file is kept for history.
+  (`verified`) or retires (`deprecated`) them. Deprecated is final and the file is kept for history. Merge promotion can optionally verify
+  drafts whose source commit was merged.
   Search returns verified cards by default; drafts and deprecated cards only on request, always labelled.
 - **Git is the source of truth.** `cards/*.md` and `events/*.jsonl` are committed locally. The SQLite
   index is derived and can be rebuilt at any time. Syncing between machines is an ordinary git
@@ -21,7 +23,7 @@ the read path. It works with any MCP client, such as Claude Code, Cursor or Code
 - **Search.** Full-text search (SQLite FTS5) with matching on stack, version and project. Every result
   says how it matched, so an agent can tell a real hit from a loose one, and carries a trust score
   from usage feedback and age.
-- **Careful by construction.** Draft and deprecated content is labelled `untrusted` / `deprecated` in
+- **Checks on save and read.** Draft and deprecated content is labelled `untrusted` / `deprecated` in
   every response, secret patterns are rejected on save, and a card that conflicts with an existing
   one is refused instead of silently overwriting it.
 
@@ -32,7 +34,7 @@ the read path. It works with any MCP client, such as Claude Code, Cursor or Code
 | `search_knowledge` | Find cards by keywords or a pasted error message; returns compact results with a `match` label. |
 | `get_card` | Read one card in full (also available as the resource `knowledge://card/{id}`). |
 | `save_learning_draft` | Save a new card as a draft. |
-| `update_card_status` | Verify or deprecate a card, only after a human approves. |
+| `update_card_status` | Verify or deprecate a card; agents should call it only when you tell them to. |
 | `report_card_usage` | Report whether a card helped: `confirmed`, `refuted` or `neutral`. |
 
 There is also one prompt, `distill_project_knowledge`, which guides an agent through turning an existing
@@ -48,13 +50,13 @@ Five steps from an empty knowledge store to your first trusted card:
    claude mcp add cardloom -- npx -y cardloom-mcp
    ```
 
-2. Check the store: `npx cardloom-mcp doctor` prints where the store lives, how many cards it holds
-   by status, and, while nothing is verified yet, a hint pointing back here. It is read-only.
+2. Run `npx cardloom-mcp doctor` to see the store path and card counts by status. If there are no
+   verified cards, it points you back to this quickstart. The check is read-only.
 3. Ask your agent to save one gotcha it just hit, for example: "Save what we learned about this
    error as a gotcha card, and put the exact error message in `error_signature`." The agent calls
    `save_learning_draft`; the card lands as `draft`.
 4. Approve it in chat: "Verify that card." The agent calls `update_card_status` with action
-   `verify`. Nothing is trusted until you do this (see [Approving knowledge in chat](#approving-knowledge-in-chat)).
+   `verify`. Until you do this, the draft stays out of default search (see [Approving knowledge in chat](#approving-knowledge-in-chat)).
 5. Search for it: ask the agent to call `search_knowledge` with the exact `error_signature` text you
    saved. With default settings the card comes back with `match: "exact_signature"`.
 
@@ -70,7 +72,7 @@ domain: backend
 
 ## Setup
 
-Three ways to run the server, easiest first. They all expose the same 5 tools.
+The server exposes the same five tools with each setup option.
 
 Options 2 and 3 run from a clone: `git clone https://github.com/bangca85/cardloom-mcp.git && cd cardloom-mcp`.
 
@@ -230,9 +232,9 @@ Each result says how it matched:
 | `all_terms` | Every word of your query is in the card. |
 | `related` | Only some of the words match. |
 
-When every result is `related`, the response also has `no_direct_match: true`: no card answers the query
-yet, so treat the results as pointers, not answers. Set `SEARCH_FALLBACK=off` to get only cards that match
-all words.
+When all returned cards are partial matches, the response includes `no_direct_match: true`. Use those
+cards as leads for a follow-up search, not as an answer. Set `SEARCH_FALLBACK=off` to get only cards that
+match all words.
 
 By default only `verified`, non-restricted cards are returned. `include_drafts`, `include_deprecated` and
 `include_restricted` opt in, and those cards are always labelled. Each result also carries a `trust` score
@@ -248,9 +250,8 @@ enabling them.
 
 ## `.knowledge-map.yaml` — giving the agent context per repo
 
-The server never reads this file itself. Instead, in each of your *other*
-project repos, keep a `.knowledge-map.yaml` that your agent reads and passes as `context` to
-`search_knowledge`, so results rank by facet relevance instead of just keyword match:
+Add a `.knowledge-map.yaml` to the root of each project you work on. Your agent reads it and passes the
+project and stack details to `search_knowledge`, so results are matched against your stack and versions:
 
 ```yaml
 # .knowledge-map.yaml — lives in the root of each project repo you work in
@@ -281,10 +282,9 @@ Workflow for a brand-new repo:
 ## Enforcing usage from a consumer project's CLAUDE.md / AGENTS.md
 
 Nothing forces the agent to call these tools — MCP tools only fire when the model decides to.
-If you want reliable query-before-answer and write-back-after-learning behavior in one of your
-*other* project repos, paste this into that repo's project-instructions file: `CLAUDE.md` for
-Claude Code, `AGENTS.md` for Codex (Codex does not read `CLAUDE.md`). If both clients touch the
-same repo, paste it into both files.
+To have your agent search before answering, report whether a card helped, and save new lessons as
+drafts, add the instructions below to the project's `CLAUDE.md` (Claude Code) or `AGENTS.md` (Codex,
+which does not read `CLAUDE.md`). If both clients touch the repo, add them to both files.
 
 ````markdown
 ## Knowledge Hub (MCP `cardloom`) — required
@@ -293,7 +293,7 @@ same repo, paste it into both files.
 third-party API contracts, infra gotchas, etc.): call `search_knowledge(query, context)` first,
 with `context` read from `.knowledge-map.yaml` at this repo's root (`stack`, `versions`, and
 `project` / `aliases` so results are labelled for this repo). A result with `match: related`,
-or a response with `no_direct_match: true`, means no card answers this yet — don't treat it as an answer.
+or a response with `no_direct_match: true`, is a partial match: use it as a lead for another search, not as an answer.
 **If that file doesn't exist yet**, generate a draft yourself before proceeding — inspect this
 repo's manifest (package.json / pubspec.yaml / go.mod / requirements.txt, lockfiles) for the
 real stack + versions, write it in this shape, then ask the human to review before you rely on it:
@@ -336,8 +336,8 @@ architecture or security call.
 
 ## Approving knowledge in chat
 
-Every card an agent saves via `save_learning_draft` starts in `status: draft` — never trusted
-automatically. To promote or retire one:
+Every card an agent saves via `save_learning_draft` starts in `status: draft` and stays out of default search
+until it is verified. To promote or retire one:
 
 - **Approve:** tell the agent to approve a card; it calls
   `update_card_status(id, "verify")`. Status flips to `verified`, and if the card declared
@@ -351,26 +351,24 @@ with `supersedes` pointing at the old one and approve it.
 
 ## Ingesting an existing project
 
-To distill an existing repo's accumulated knowledge (docs, architecture decisions, git history,
-story debug logs) into draft cards in one go, use the built-in MCP Prompt instead of hand-writing
-a distillation prompt each time:
+Use the built-in prompt `distill_project_knowledge` to turn a repo's docs, architecture decisions, git
+history and debug logs into draft cards:
 
-- Claude Code / any MCP client that supports Prompts: invoke `distill_project_knowledge`
-  (optionally with `project_path` — defaults to cwd) and let the agent run it.
+- Invoke it from any MCP client that supports prompts (Claude Code does), optionally with `project_path`
+  (defaults to the current directory), and let the agent run it.
 - The prompt instructs the agent to enumerate sources exhaustively (not just CLAUDE.md's
   condensed summaries — the full numbered decision list a summary points at, every story file's
   Debug Log section, full git history, claude-mem if present), report a source survey with
-  expected nugget counts *before* saving anything, dedupe against existing verified cards via
+  an estimate of how many lessons each source contains *before* saving anything, dedupe against existing verified cards via
   `search_knowledge` (using `supersedes` where a lesson is refined rather than new), and present
   cards in small batches for you to approve.
 - All cards still land in `draft` — nothing gets `verify`d without you approving in chat.
 
 ## Merge promotion (`npm run promote-merged`)
 
-A draft whose source commit went through its own repo's review and merge has a second piece of
-evidence besides your chat approval. `promote-merged` (host-side CLI — it reads your other clones
-and calls `gh`, which the container never can) finds those drafts and, depending on
-`PROMOTION_MODE`, lists or verifies them.
+`promote-merged` finds drafts whose source commit reached its repo's default branch after the draft was
+written. By default it lists them for you to approve; in `auto` mode it verifies the eligible ones itself.
+It runs on the host because it reads your other clones and calls `gh`, which the container cannot.
 
 | `PROMOTION_MODE` | What happens |
 | --- | --- |
@@ -383,6 +381,8 @@ its `knowledge: add` commit in the store). A card about code already on `main` r
 HEAD, which is trivially "merged"; counting that would verify every observation on save. How a
 commit's arrival is dated: on the first-parent line → its own date; brought in by a merge → the
 merge commit's date; not in the clone at all (squash merge) → the GitHub pull request's `merged_at`.
+A commit pushed straight to the default branch also counts: that is evidence about the commit's history,
+not proof that anyone reviewed the card.
 
 `auto` never verifies, and always leaves as a candidate:
 
@@ -415,9 +415,9 @@ npm run promote-merged -- --mode=review --json
 
 ## Host sync (git push/pull)
 
-The container **only commits locally** — it never pushes, pulls, or touches remotes or SSH keys
-(by design: credentials stay on the host, never inside the container). Syncing between machines
-is a host-side git habit, same as any other repo. Use the path of your store: `~/.cardloom/knowledge-store`
+The server **only commits locally**: it never pushes, pulls, or touches remotes or SSH keys, so
+credentials never need to be inside the Docker container. To sync between machines, run
+`git pull --rebase` and `git push` from your host. Use the path of your store: `~/.cardloom/knowledge-store`
 with `npx`, or `<clone>/knowledge-store` otherwise.
 
 ```bash
@@ -499,7 +499,7 @@ Per kind the report gives `n` plus: `known` / `cross_project` hit@1, MRR@5, reca
 `SEARCH_RANKING`, look at `wrongProjectTop1Rate` (project_decision) and recall@5 (cross_project).
 
 `--synthetic` skips `queries.yaml` and derives a suite from the store (verified + normal cards
-only): `title` (verbatim), `title_nl` (natural-language paraphrase), `sig_noisy` (a noisy pasted
+only): `title` (verbatim), `title_nl` (the first seven title words inside a question template), `sig_noisy` (a noisy pasted
 error line, gotchas only) and 100 `missing` queries built from fabricated tokens, each checked to
 have zero full-text hits. `--matrix` runs the same queries under `baseline/off`,
 `baseline/tiered`, `x/tiered` and `y/tiered` (ranking/fallback) and prints one row per config:
