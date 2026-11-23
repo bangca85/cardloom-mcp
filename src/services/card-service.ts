@@ -6,6 +6,7 @@ import { MutationPipeline } from './mutation-pipeline.js';
 import { checkConflict } from './conflict-engine.js';
 import { computeTrust } from './trust-service.js';
 import { validateCardStrict, type Card } from '../types/card-schema.js';
+import { normalizeProjectKey } from '../utils/facets-intersect.js';
 import { generateSlug } from '../utils/slug-generator.js';
 import { daysSince } from '../utils/date.js';
 import { config } from '../config/env.js';
@@ -28,6 +29,8 @@ function cardToFrontmatter(card: Card): Record<string, unknown> {
     // Listed here or lost: this builder is a whitelist, and a field missing from it is dropped on
     // every save AND every status change, so the card a merge promotion reads no longer names its repo.
     source_repo: card.source_repo,
+    // Same whitelist rule as source_repo: omit it and verify/deprecate silently strip the project key.
+    project: card.project,
     provenance: card.provenance,
     title: card.title,
     domain: card.domain,
@@ -62,6 +65,7 @@ export interface SaveLearningDraftInput {
   sensitivity?: Card['sensitivity'];
   source_commit: string;
   source_repo?: string;
+  project?: string;
   provenance: string;
 }
 
@@ -96,6 +100,8 @@ export async function saveLearningDraft(
     sensitivity: input.sensitivity ?? 'normal',
     source_commit: input.source_commit,
     source_repo: input.source_repo,
+    // Normalised before validation; the strict schema checks the value as stored.
+    project: input.project === undefined ? undefined : normalizeProjectKey(input.project),
     provenance: input.provenance,
     title: input.title,
     domain: input.domain,

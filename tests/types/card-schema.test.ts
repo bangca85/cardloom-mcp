@@ -152,6 +152,40 @@ describe('validateCardStrict', () => {
   });
 });
 
+describe('project key', () => {
+  it('accepts a project key on a project-scoped card and rejects it on stack scope', () => {
+    const ok = validateCardStrict(validDraftCard({ project: 'acme/billing-api' }));
+    expect(ok.project).toBe('acme/billing-api');
+
+    let error: ValidationError | undefined;
+    try {
+      validateCardStrict(validDraftCard({ scope: 'stack', project: 'acme/billing-api' }));
+    } catch (e) {
+      error = e as ValidationError;
+    }
+    expect(error).toBeInstanceOf(ValidationError);
+    expect(error!.details as ValidationIssue[]).toContainEqual({
+      field: 'project',
+      message: 'project is only allowed when scope is "project"',
+    });
+  });
+
+  it('rejects absolute paths as project keys', () => {
+    let error: ValidationError | undefined;
+    try {
+      validateCardStrict(validDraftCard({ project: '/Users/me/app' }));
+    } catch (e) {
+      error = e as ValidationError;
+    }
+    expect(error).toBeInstanceOf(ValidationError);
+    expect((error!.details as ValidationIssue[]).some((i) => i.field === 'project')).toBe(true);
+  });
+
+  it('keeps project optional', () => {
+    expect(validateCardStrict(validDraftCard()).project).toBeUndefined();
+  });
+});
+
 describe('validateCardLenient', () => {
   it('strips counters from frontmatter and warns, while keeping unknown fields', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -193,5 +227,28 @@ describe('validateCardLenient', () => {
     const result = validateCardLenient(card);
     expect(result.card.stack).toEqual(['node']);
     expect(result.card.applies_to).toEqual(['api']);
+  });
+
+  it('drops an invalid project with a warning instead of failing', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const result = validateCardLenient(validDraftCard({ project: '/Users/me/app' }));
+    expect(result.card.project).toBeUndefined();
+    expect(result.warnings.some((w) => w.includes('project'))).toBe(true);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('[card-schema]'));
+    errorSpy.mockRestore();
+  });
+
+  it('drops a project on a non-project-scoped card with a warning', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const result = validateCardLenient(validDraftCard({ scope: 'global', project: 'acme/billing-api' }));
+    expect(result.card.project).toBeUndefined();
+    expect(result.warnings.some((w) => w.includes('project'))).toBe(true);
+    errorSpy.mockRestore();
+  });
+
+  it('keeps a valid project on a project-scoped card', () => {
+    const result = validateCardLenient(validDraftCard({ project: 'acme/billing-api' }));
+    expect(result.card.project).toBe('acme/billing-api');
+    expect(result.warnings).toEqual([]);
   });
 });

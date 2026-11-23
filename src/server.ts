@@ -98,6 +98,12 @@ export function createServer(db: Database.Database, knowledgeStorePath: string):
           .describe(
             'GitHub "owner/name" of the repo source_commit belongs to. Set it whenever source_commit is a sha: it is how merge promotion finds the commit and checks it reached the default branch.',
           ),
+        project: z
+          .string()
+          .optional()
+          .describe(
+            'Project key from the repo\'s .knowledge-map.yaml, e.g. "acme/billing-api". Only for scope "project" cards; lowercased and trimmed on save, and a filesystem path is rejected.',
+          ),
         provenance: z.string().describe('How this learning was derived'),
       },
     },

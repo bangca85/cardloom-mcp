@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ValidationError, type ValidationIssue } from './errors.js';
+import { PROJECT_KEY_RE } from '../utils/facets-intersect.js';
 
 export const CARD_TYPES = ['decision', 'pattern', 'snippet', 'gotcha', 'playbook'] as const;
 export const CARD_SCOPES = ['project', 'stack', 'global'] as const;
@@ -26,6 +27,12 @@ function baseFields() {
     source_repo: z
       .string()
       .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, 'source_repo must be "owner/name"')
+      .optional(),
+    // Stable key of the project a `scope: project` card belongs to (e.g. "acme/billing-api"), as stored:
+    // already normalised by save_learning_draft. Optional because older cards predate it; never a path.
+    project: z
+      .string()
+      .regex(PROJECT_KEY_RE, 'project must be a lowercase key like "name" or "owner/name", not a path')
       .optional(),
     provenance: z.string(),
     title: z.string().min(1),
@@ -71,13 +78,22 @@ function gotchaRefine(val: { type: string; error_signature?: string }, ctx: z.Re
   }
 }
 
+function projectScopeRefine(val: { scope: string; project?: string }, ctx: z.RefinementCtx): void {
+  if (val.project !== undefined && val.scope !== 'project') {
+    ctx.addIssue({ code: 'custom', message: 'project is only allowed when scope is "project"', path: ['project'] });
+  }
+}
+
 const StrictDraftCard = z.strictObject({ ...baseFields(), ...draftFields() });
 const StrictVerifiedCard = z.strictObject({ ...baseFields(), ...verifiedFields() });
 const StrictDeprecatedCard = z.strictObject({ ...baseFields(), ...deprecatedFields() });
 
 export const CardSchemaStrict = z
   .discriminatedUnion('status', [StrictDraftCard, StrictVerifiedCard, StrictDeprecatedCard])
-  .superRefine(gotchaRefine);
+  .superRefine((val, ctx) => {
+    gotchaRefine(val, ctx);
+    projectScopeRefine(val, ctx);
+  });
 
 const LooseDraftCard = z.looseObject({ ...baseFields(), ...draftFields() });
 const LooseVerifiedCard = z.looseObject({ ...baseFields(), ...verifiedFields() });
@@ -137,6 +153,22 @@ export function validateCardLenient(data: unknown): LenientValidationResult {
     if (typeof raw[key] === 'string') {
       raw[key] = [raw[key]];
       const message = `coerced "${key}" from string to single-element array`;
+      warnings.push(message);
+      console.error(`[card-schema] ${message}`);
+    }
+  }
+
+  // An invalid project must never make reconcile skip a hand-edited card: drop it and say so.
+  if ('project' in raw) {
+    const problem =
+      typeof raw.project !== 'string' || !PROJECT_KEY_RE.test(raw.project)
+        ? 'is not a valid project key'
+        : raw.scope !== 'project'
+          ? 'is only allowed when scope is "project"'
+          : undefined;
+    if (problem) {
+      delete raw.project;
+      const message = `dropped "project" from card frontmatter (value ${problem})`;
       warnings.push(message);
       console.error(`[card-schema] ${message}`);
     }

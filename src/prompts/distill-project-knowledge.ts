@@ -52,6 +52,7 @@ Call \`save_learning_draft\` per card, no placeholders:
 - \`version_range\`: the semver range this lesson holds true for
 - \`source_commit\`: the specific commit hash if you have one, else the current HEAD — a bare sha, no prose around it
 - \`source_repo\`: the GitHub "owner/name" that commit lives in (lets merge promotion find it)
+- \`project\`: the project key from that repo's \`.knowledge-map.yaml\` — only for \`scope: project\` cards
 - \`provenance\`: exactly where this came from — file path, doc section, commit hash, or "claude-mem observation <id>"
 
 Write \`body\` in structured Markdown — never one continuous block of prose. Break it into \`##\` sections; adapt names to the card type but always separate concerns, e.g.:

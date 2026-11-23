@@ -75,6 +75,25 @@ describe('saveLearningDraft', () => {
     expect(row).toEqual({ id: 'pattern-use-x-pattern-for-retries', status: 'draft' });
   });
 
+  it('normalises the project key on save ("Acme/Billing-Api" -> "acme/billing-api")', async () => {
+    await saveLearningDraft(db, storePath, baseInput({ title: 'Project keyed pattern', project: 'Acme/Billing-Api' }));
+    const parsed = matter(fs.readFileSync(path.join(storePath, 'cards', 'pattern-project-keyed-pattern.md'), 'utf-8'));
+    expect(parsed.data['project']).toBe('acme/billing-api');
+  });
+
+  it('rejects an absolute path as project key and writes no file', async () => {
+    await expect(
+      saveLearningDraft(db, storePath, baseInput({ title: 'Path keyed pattern', project: '/Users/me/app' })),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(fs.existsSync(path.join(storePath, 'cards', 'pattern-path-keyed-pattern.md'))).toBe(false);
+  });
+
+  it('rejects a project key on a stack-scoped card', async () => {
+    await expect(
+      saveLearningDraft(db, storePath, baseInput({ title: 'Stack keyed pattern', scope: 'stack', project: 'acme/billing-api' })),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
   it('records supersedes as a pending marker only — the old card is left untouched (AC2, AD-13)', async () => {
     await saveLearningDraft(db, storePath, baseInput({ title: 'Old retry pattern' }));
     const oldId = 'pattern-old-retry-pattern';
@@ -223,6 +242,20 @@ describe('updateCardStatus', () => {
 
     const row = db.prepare('SELECT status, verified_by, verification_method, last_verified FROM cards WHERE id = ?').get(id);
     expect(row).toMatchObject({ status: 'verified', verified_by: 'bradley', verification_method: 'chat-approval' });
+  });
+
+  it('verify and deprecate keep project in the card file', async () => {
+    await saveLearningDraft(db, storePath, baseInput({ title: 'Keeps project key pattern', project: 'acme/billing-api' }));
+    const id = 'pattern-keeps-project-key-pattern';
+    const cardPath = path.join(storePath, 'cards', `${id}.md`);
+    const projectOf = () => matter(fs.readFileSync(cardPath, 'utf-8')).data['project'];
+    expect(projectOf()).toBe('acme/billing-api');
+
+    await updateCardStatus(db, storePath, { id, action: 'verify' });
+    expect(projectOf()).toBe('acme/billing-api');
+
+    await updateCardStatus(db, storePath, { id, action: 'deprecate', reason: 'obsolete' });
+    expect(projectOf()).toBe('acme/billing-api');
   });
 
   it('draft -> deprecate sets deprecation_reason/at/by, keeps the file, and hides it from default search (AC2)', async () => {
