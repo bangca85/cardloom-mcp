@@ -21,6 +21,10 @@ git config --global --add safe.directory "$KNOWLEDGE_STORE_PATH"
 # the bind mount broke that resolution. stdout is the MCP channel (AD-12), git's chatter -> stderr.
 if [ ! -d "$KNOWLEDGE_STORE_PATH/.git" ]; then
   git -C "$KNOWLEDGE_STORE_PATH" init >&2
+  # The image has no global git identity: set it BEFORE the first commit, or a brand-new store aborts
+  # with "Author identity unknown" and `set -e` ends the container on its first start.
+  git -C "$KNOWLEDGE_STORE_PATH" config user.email "cardloom-mcp@local"
+  git -C "$KNOWLEDGE_STORE_PATH" config user.name "cardloom-mcp"
   git -C "$KNOWLEDGE_STORE_PATH" commit --allow-empty -m "knowledge: init knowledge store" >&2
 fi
 
