@@ -13,6 +13,7 @@ export function initializeSchema(db: Database.Database): void {
       task_type TEXT,
       error_signature TEXT,
       scope TEXT NOT NULL,
+      project TEXT,
       version_range TEXT NOT NULL,
       sensitivity TEXT NOT NULL,
       supersedes TEXT,
@@ -87,6 +88,16 @@ export function initializeSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_card_stacks_card ON card_stacks(card_id);
     CREATE INDEX IF NOT EXISTS idx_card_stacks_name ON card_stacks(stack_name);
   `);
+
+  // In-place migration for indexes created before the `project` column existed (AD-2: derived
+  // data, repopulated by the next reconcile). CREATE TABLE IF NOT EXISTS never alters a table.
+  const columns = db.prepare('PRAGMA table_info(cards)').all() as Array<{ name: string }>;
+  if (!columns.some((c) => c.name === 'project')) {
+    db.exec('ALTER TABLE cards ADD COLUMN project TEXT');
+    // Existing rows have project = NULL; clearing file_mtime makes the next reconcile re-read every
+    // card (it skips rows whose mtime matches), so project values already in frontmatter get indexed.
+    db.exec("UPDATE cards SET file_mtime = ''");
+  }
 }
 
 interface RelationSourceCard {

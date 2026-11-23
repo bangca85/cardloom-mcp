@@ -10,6 +10,7 @@ interface CardFixture {
   body?: string;
   title?: string;
   appliesTo?: string[];
+  project?: string;
 }
 
 function insertCard(db: Database.Database, fixture: CardFixture): void {
@@ -18,15 +19,16 @@ function insertCard(db: Database.Database, fixture: CardFixture): void {
       id, type, status, title, domain, stack, applies_to, task_type, error_signature,
       scope, version_range, sensitivity, supersedes, conflicts_with, source_commit, provenance,
       verified_by, verification_method, last_verified, deprecation_reason, deprecated_at, deprecated_by,
-      body, created_at, updated_at, file_mtime
+      body, created_at, updated_at, file_mtime, project
     ) VALUES (
       @id, 'pattern', @status, @title, NULL, '["node"]', @applies_to, NULL, NULL,
       'project', '>=1.0.0', 'normal', NULL, '[]', 'abc123', 'agent-observation',
       @verified_by, @verification_method, @last_verified, NULL, NULL, NULL,
-      @body, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'
+      @body, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', @project
     )`,
   ).run({
     id: fixture.id,
+    project: fixture.project ?? null,
     status: fixture.status ?? 'verified',
     title: fixture.title ?? `Title for ${fixture.id}`,
     applies_to: JSON.stringify(fixture.appliesTo ?? ['api']),
@@ -184,5 +186,23 @@ describe('handleSearchKnowledge', () => {
     expect(byId['pattern-unknown']!['applies_to']).toEqual(['api']);
   });
 
-  it.todo('labels an other_project card with applies_to_project only when the card names its project (needs the cards.project column from Task 8)');
+  it('search uses cards.project: explicit other key → other_project + applies_to_project', () => {
+    insertCard(db, { id: 'pattern-mine', body: 'projected content', appliesTo: ['api'], project: 'acme/billing-api' });
+    insertCard(db, { id: 'pattern-other', body: 'projected content', appliesTo: ['api'], project: 'acme/other-svc' });
+    insertCard(db, { id: 'pattern-legacy', body: 'projected content', appliesTo: ['api'] });
+
+    const withProject = parseResponse(
+      handleSearchKnowledge(db, { query: 'projected', context: { project: 'acme/billing-api', aliases: [] } }),
+    );
+    const byId = Object.fromEntries(withProject.results.map((r) => [r['id'] as string, r]));
+    expect(byId['pattern-mine']!['scope_layer']).toBe('this_project');
+    expect(byId['pattern-mine']!['applies_to_project']).toBeUndefined();
+    expect(byId['pattern-other']!['scope_layer']).toBe('other_project');
+    expect(byId['pattern-other']!['applies_to_project']).toBe('acme/other-svc');
+    expect(byId['pattern-legacy']!['scope_layer']).toBe('unknown');
+    expect(byId['pattern-legacy']!['applies_to_project']).toBeUndefined();
+
+    const without = parseResponse(handleSearchKnowledge(db, { query: 'projected' }));
+    for (const item of without.results) expect(item['applies_to_project']).toBeUndefined();
+  });
 });

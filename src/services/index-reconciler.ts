@@ -31,12 +31,12 @@ export async function reconcileIndex(db: Database.Database, knowledgeStorePath: 
   const insertStmt = db.prepare(`
     INSERT INTO cards (
       id, type, status, title, domain, stack, applies_to, task_type, error_signature,
-      scope, version_range, sensitivity, supersedes, conflicts_with, source_commit, provenance,
+      scope, project, version_range, sensitivity, supersedes, conflicts_with, source_commit, provenance,
       verified_by, verification_method, last_verified, deprecation_reason, deprecated_at, deprecated_by,
       body, created_at, updated_at, file_mtime
     ) VALUES (
       @id, @type, @status, @title, @domain, @stack, @applies_to, @task_type, @error_signature,
-      @scope, @version_range, @sensitivity, @supersedes, @conflicts_with, @source_commit, @provenance,
+      @scope, @project, @version_range, @sensitivity, @supersedes, @conflicts_with, @source_commit, @provenance,
       @verified_by, @verification_method, @last_verified, @deprecation_reason, @deprecated_at, @deprecated_by,
       @body, @created_at, @updated_at, @file_mtime
     )
@@ -46,7 +46,7 @@ export async function reconcileIndex(db: Database.Database, knowledgeStorePath: 
     UPDATE cards SET
       type = @type, status = @status, title = @title, domain = @domain, stack = @stack,
       applies_to = @applies_to, task_type = @task_type, error_signature = @error_signature,
-      scope = @scope, version_range = @version_range, sensitivity = @sensitivity, supersedes = @supersedes,
+      scope = @scope, project = @project, version_range = @version_range, sensitivity = @sensitivity, supersedes = @supersedes,
       conflicts_with = @conflicts_with, source_commit = @source_commit, provenance = @provenance,
       verified_by = @verified_by, verification_method = @verification_method, last_verified = @last_verified,
       deprecation_reason = @deprecation_reason, deprecated_at = @deprecated_at, deprecated_by = @deprecated_by,
@@ -106,6 +106,7 @@ export async function reconcileIndex(db: Database.Database, knowledgeStorePath: 
         task_type: card.task_type ?? null,
         error_signature: card.error_signature ?? null,
         scope: card.scope,
+        project: card.project ?? null,
         version_range: card.version_range,
         sensitivity: card.sensitivity,
         supersedes: card.supersedes,

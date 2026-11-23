@@ -69,6 +69,7 @@ function reconcileSingleCard(idxDb: Database.Database, id: string, storeDir: str
     task_type: card.task_type ?? null,
     error_signature: card.error_signature ?? null,
     scope: card.scope,
+    project: card.project ?? null,
     version_range: card.version_range,
     sensitivity: card.sensitivity,
     supersedes: card.supersedes,
@@ -90,19 +91,19 @@ function reconcileSingleCard(idxDb: Database.Database, id: string, storeDir: str
   const insertOrReplace = idxDb.prepare(`
     INSERT INTO cards (
       id, type, status, title, domain, stack, applies_to, task_type, error_signature,
-      scope, version_range, sensitivity, supersedes, conflicts_with, source_commit, provenance,
+      scope, project, version_range, sensitivity, supersedes, conflicts_with, source_commit, provenance,
       verified_by, verification_method, last_verified, deprecation_reason, deprecated_at, deprecated_by,
       body, created_at, updated_at, file_mtime
     ) VALUES (
       @id, @type, @status, @title, @domain, @stack, @applies_to, @task_type, @error_signature,
-      @scope, @version_range, @sensitivity, @supersedes, @conflicts_with, @source_commit, @provenance,
+      @scope, @project, @version_range, @sensitivity, @supersedes, @conflicts_with, @source_commit, @provenance,
       @verified_by, @verification_method, @last_verified, @deprecation_reason, @deprecated_at, @deprecated_by,
       @body, @created_at, @updated_at, @file_mtime
     )
     ON CONFLICT(id) DO UPDATE SET
       type = excluded.type, status = excluded.status, title = excluded.title, domain = excluded.domain,
       stack = excluded.stack, applies_to = excluded.applies_to, task_type = excluded.task_type,
-      error_signature = excluded.error_signature, scope = excluded.scope, version_range = excluded.version_range,
+      error_signature = excluded.error_signature, scope = excluded.scope, project = excluded.project, version_range = excluded.version_range,
       sensitivity = excluded.sensitivity, supersedes = excluded.supersedes, conflicts_with = excluded.conflicts_with,
       source_commit = excluded.source_commit, provenance = excluded.provenance, verified_by = excluded.verified_by,
       verification_method = excluded.verification_method, last_verified = excluded.last_verified,

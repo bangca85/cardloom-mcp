@@ -35,6 +35,21 @@ describe('schema.ts relations and stacks', () => {
     expect(indexes).toContain('idx_card_stacks_name');
   });
 
+  it('upgrades an index created before the project column (Review Focus 2)', () => {
+    const old = new Database(':memory:');
+    initializeSchema(old);
+    old.exec('ALTER TABLE cards DROP COLUMN project'); // simulate an old index without inline DDL
+    old.exec(`INSERT INTO cards (id, type, status, title, scope, version_range, sensitivity, source_commit, provenance, body, created_at, updated_at, file_mtime)
+      VALUES ('pattern-old', 'pattern', 'draft', 't', 'project', '*', 'normal', 'abc', 'agent-observation', 'b', 'x', 'x', '2026-01-01T00:00:00.000Z')`);
+    expect((old.prepare('PRAGMA table_info(cards)').all() as Array<{ name: string }>).map((c) => c.name)).not.toContain('project');
+    initializeSchema(old);
+    expect((old.prepare('PRAGMA table_info(cards)').all() as Array<{ name: string }>).map((c) => c.name)).toContain('project');
+    // Rows indexed before the column existed are marked stale so the next reconcile fills project in.
+    expect((old.prepare("SELECT file_mtime FROM cards WHERE id = 'pattern-old'").get() as { file_mtime: string }).file_mtime).toBe('');
+    initializeSchema(old); // idempotent
+    old.close();
+  });
+
   it('inserts and deletes relations and stacks properly', () => {
     const cardId = 'decision-oauth-flow';
     const cardData = {

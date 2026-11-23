@@ -60,6 +60,8 @@ export interface SearchResultItem extends CardLabels {
   excerpt: string;
   match: MatchTier;
   scope_layer: ScopeLayer | null;
+  /** The card's own project key (scope: project cards only), else null. */
+  project: string | null;
   flags: SearchResultFlags;
 }
 
@@ -74,6 +76,7 @@ interface CardRow {
   task_type: string | null;
   error_signature: string | null;
   scope: FacetSet['scope'];
+  project: string | null;
   version_range: string;
   sensitivity: 'normal' | 'restricted';
   last_verified: string | null;
@@ -116,7 +119,7 @@ function runFtsQuery(db: Database.Database, ftsQuery: string, statusList: string
       `
       SELECT
         cards.id, cards.type, cards.status, cards.title, cards.domain, cards.stack, cards.applies_to,
-        cards.task_type, cards.error_signature, cards.scope, cards.version_range, cards.sensitivity,
+        cards.task_type, cards.error_signature, cards.scope, cards.project, cards.version_range, cards.sensitivity,
         cards.last_verified, cards.deprecation_reason, cards.body,
         snippet(cards_fts, 1, '', '', '…', 16) as excerpt,
         cards_fts.rank as fts_rank,
@@ -270,8 +273,7 @@ export function searchCards(db: Database.Database, query: string, opts: SearchOp
     const drift = computeDrift(row, normalizedContext);
     const facetMatch = contextFacets.stack.length > 0 && facetsIntersect(contextFacets, cardFacets) && !drift;
 
-    // The cards table has no `project` column yet, so layers come from applies_to only.
-    const scopeLayer = classifyScopeLayer({ scope: row.scope, project: undefined, applies_to: appliesTo }, caller);
+    const scopeLayer = classifyScopeLayer({ scope: row.scope, project: row.project ?? undefined, applies_to: appliesTo }, caller);
     const scopeRank = computeScopeRank(scopeLayer, facetMatch, drift, contextFacets.stack.length > 0);
     const match = classifyMatch(query, { title: row.title, error_signature: row.error_signature }, allTermsIds.has(row.id));
 
@@ -309,6 +311,7 @@ export function searchCards(db: Database.Database, query: string, opts: SearchOp
       excerpt: row.excerpt ? row.excerpt : preview,
       match,
       scope_layer: scopeLayer,
+      project: row.project,
       flags,
       ...labels,
     };

@@ -11,6 +11,7 @@ interface CardFixture {
   scope?: 'project' | 'stack' | 'global';
   stack?: string[];
   applies_to?: string[];
+  project?: string;
   version_range?: string;
   sensitivity?: 'normal' | 'restricted';
   error_signature?: string | null;
@@ -24,15 +25,16 @@ function insertCard(db: Database.Database, fixture: CardFixture): void {
       id, type, status, title, domain, stack, applies_to, task_type, error_signature,
       scope, version_range, sensitivity, supersedes, conflicts_with, source_commit, provenance,
       verified_by, verification_method, last_verified, deprecation_reason, deprecated_at, deprecated_by,
-      body, created_at, updated_at, file_mtime
+      body, created_at, updated_at, file_mtime, project
     ) VALUES (
       @id, @type, @status, @title, NULL, @stack, @applies_to, NULL, @error_signature,
       @scope, @version_range, @sensitivity, NULL, '[]', 'abc123', 'agent-observation',
       @verified_by, @verification_method, @last_verified, NULL, NULL, NULL,
-      @body, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'
+      @body, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', @project
     )`,
   ).run({
     id: fixture.id,
+    project: fixture.project ?? null,
     type: fixture.type ?? 'pattern',
     status: fixture.status ?? 'verified',
     title: fixture.title ?? `Title for ${fixture.id}`,
@@ -282,10 +284,23 @@ describe('searchCards — tiered fallback, ranking modes, scope layers (Task 4)'
 
   it('x ranks this_project above other_project; y lets an exact other-project card win', () => {
     insertCard(db, { id: 'decision-a', type: 'decision', scope: 'project', applies_to: ['proj-a'], title: 'Retry policy', body: 'retry policy body' });
-    insertCard(db, { id: 'gotcha-b', type: 'gotcha', scope: 'project', applies_to: ['proj-b'], error_signature: 'RETRY_EXHAUSTED', body: 'retry policy body' });
+    insertCard(db, { id: 'gotcha-b', type: 'gotcha', scope: 'project', applies_to: ['proj-b'], project: 'proj-b', error_signature: 'RETRY_EXHAUSTED', body: 'retry policy body' });
     const ctx = { project: 'proj-a', stack: ['node'] };
     expect(searchCards(db, 'RETRY_EXHAUSTED retry policy', { context: ctx, fallback: 'tiered', ranking: 'x' })[0]!.id).toBe('decision-a');
     expect(searchCards(db, 'RETRY_EXHAUSTED retry policy', { context: ctx, fallback: 'tiered', ranking: 'y' })[0]!.id).toBe('gotcha-b');
+  });
+
+  it('uses cards.project: explicit other key is other_project and exposes project; own key is this_project', () => {
+    insertCard(db, { id: 'decision-a', type: 'decision', scope: 'project', applies_to: ['api'], project: 'proj-a', title: 'Zebra quokka', body: 'zebra quokka body' });
+    insertCard(db, { id: 'gotcha-b', type: 'gotcha', scope: 'project', applies_to: ['api'], project: 'proj-b', title: 'Zebra quokka', body: 'zebra quokka body' });
+    insertCard(db, { id: 'pattern-legacy', scope: 'project', applies_to: ['api'], title: 'Zebra quokka', body: 'zebra quokka body' });
+    const r = searchCards(db, 'zebra quokka', { context: { project: 'proj-a' } });
+    const byId = Object.fromEntries(r.map((x) => [x.id, x]));
+    expect(byId['decision-a']!.scope_layer).toBe('this_project');
+    expect(byId['gotcha-b']!.scope_layer).toBe('other_project');
+    expect(byId['gotcha-b']!.project).toBe('proj-b');
+    expect(byId['pattern-legacy']!.scope_layer).toBe('unknown');
+    expect(byId['pattern-legacy']!.project).toBeNull();
   });
 
   it('x drops a drifted this_project card below shared and unknown-layer cards', () => {

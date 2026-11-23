@@ -170,12 +170,12 @@ export async function saveLearningDraft(
       idxDb.prepare(`
         INSERT INTO cards (
           id, type, status, title, domain, stack, applies_to, task_type, error_signature,
-          scope, version_range, sensitivity, supersedes, conflicts_with, source_commit, provenance,
+          scope, project, version_range, sensitivity, supersedes, conflicts_with, source_commit, provenance,
           verified_by, verification_method, last_verified, deprecation_reason, deprecated_at, deprecated_by,
           body, created_at, updated_at, file_mtime
         ) VALUES (
           @id, @type, @status, @title, @domain, @stack, @applies_to, @task_type, @error_signature,
-          @scope, @version_range, @sensitivity, @supersedes, @conflicts_with, @source_commit, @provenance,
+          @scope, @project, @version_range, @sensitivity, @supersedes, @conflicts_with, @source_commit, @provenance,
           @verified_by, @verification_method, @last_verified, NULL, NULL, NULL,
           @body, @created_at, @updated_at, @file_mtime
         )
@@ -190,6 +190,7 @@ export async function saveLearningDraft(
         task_type: validatedCard.task_type ?? null,
         error_signature: validatedCard.error_signature ?? null,
         scope: validatedCard.scope,
+        project: validatedCard.project ?? null,
         version_range: validatedCard.version_range,
         sensitivity: validatedCard.sensitivity,
         supersedes: validatedCard.supersedes,

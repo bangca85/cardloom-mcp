@@ -38,6 +38,7 @@ export function handleSearchKnowledge(db: Database.Database, args: SearchKnowled
     flags: item.flags,
     ...(item.scope_layer !== null && { scope_layer: item.scope_layer }),
     ...(item.scope_layer === 'unknown' && { applies_to: item.applies_to }),
+    ...(item.scope_layer === 'other_project' && item.project !== null && { applies_to_project: item.project }),
     ...(item.untrusted !== undefined && { untrusted: item.untrusted }),
     ...(item.deprecated !== undefined && { deprecated: item.deprecated }),
     ...(item.restricted !== undefined && { restricted: item.restricted }),

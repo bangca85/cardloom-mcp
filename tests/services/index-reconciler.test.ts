@@ -102,6 +102,19 @@ describe('reconcileIndex (cards)', () => {
     expect(row.title).toBe('Use X pattern v2');
   });
 
+  it('reconcile indexes project from frontmatter and nulls it when removed', async () => {
+    const withProject = VALID_CARD.replace('scope: project\n', 'scope: project\nproject: acme/billing-api\n');
+    const filePath = writeCard(storePath, 'pattern-use-x.md', withProject);
+    await reconcileIndex(db, storePath);
+    expect((db.prepare('SELECT project FROM cards WHERE id = ?').get('pattern-use-x') as { project: string | null }).project).toBe('acme/billing-api');
+
+    fs.writeFileSync(filePath, VALID_CARD);
+    const futureTime = new Date(Date.now() + 10000);
+    fs.utimesSync(filePath, futureTime, futureTime);
+    await reconcileIndex(db, storePath);
+    expect((db.prepare('SELECT project FROM cards WHERE id = ?').get('pattern-use-x') as { project: string | null }).project).toBeNull();
+  });
+
   it('removes a card from the index when its file is deleted', async () => {
     const filePath = writeCard(storePath, 'pattern-use-x.md', VALID_CARD);
     await reconcileIndex(db, storePath);
