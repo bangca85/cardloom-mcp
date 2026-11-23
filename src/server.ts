@@ -115,7 +115,7 @@ export function createServer(db: Database.Database, knowledgeStorePath: string):
     {
       title: 'Search Knowledge',
       description:
-        'Search knowledge cards by keyword or verbatim error message. Pass `context` (stack + versions read from your .knowledge-map.yaml) so results rank by facet relevance, not just text match. Returns compact snippets only, never full card bodies (FR10). Every response carries a write_back_reminder: after using a returned card you MUST call report_card_usage(id, outcome).',
+        'Search knowledge cards by keyword or verbatim error message. Pass `context` (stack + versions read from your .knowledge-map.yaml) so results rank by facet relevance, not just text match; also pass `project` (and `aliases`) from the same file in `context`. Each result has a `match` label; `match: "related"` or `no_direct_match: true` means no card directly answers the query, and a `hint` appears when the store has no verified cards. Returns compact snippets only, never full card bodies (FR10). Every response carries a write_back_reminder: after using a returned card you MUST call report_card_usage(id, outcome).',
       inputSchema: {
         query: z.string().describe('Search query — keywords or a verbatim error message'),
         context: z
