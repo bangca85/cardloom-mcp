@@ -42,6 +42,26 @@ domain: backend
 
 ## Setup
 
+Three ways to run the server, easiest first. They all expose the same 5 tools.
+
+### Option 1: npx (no clone, no Docker)
+
+Needs Node 20+. The launcher keeps your cards in `~/.cardloom/knowledge-store` and the SQLite
+index in `~/.cardloom/index.db`; set `KNOWLEDGE_STORE_PATH` / `INDEX_DB_PATH` to put them elsewhere.
+
+```bash
+claude mcp add cardloom -- npx -y cardloom-mcp
+npx cardloom-mcp doctor   # read-only health check: store path, card counts by status
+```
+
+Other clients use the same command (`"command": "npx", "args": ["-y", "cardloom-mcp"]` in JSON
+configs such as Cursor's `~/.cursor/mcp.json`).
+
+> The `cardloom-mcp` npm package is not published yet, so `npx cardloom-mcp` only works once it
+> is. Until then use Option 2 or 3, or run `npm pack` in a clone and `npx` the resulting tarball.
+
+### Option 2: Docker
+
 1. Build the server:
 
    ```bash
@@ -92,7 +112,7 @@ domain: backend
    resource template, `knowledge://card/{id}`, and one Prompt, `distill_project_knowledge`
    (see [Ingesting an existing project](#ingesting-an-existing-project)).
 
-### Native (no Docker)
+### Option 3: Native from a clone (no Docker)
 
 Docker on macOS runs a Linux VM (Virtualization.framework) underneath, which reserves several GB
 of RAM regardless of how small the container's own workload is. The server itself is light —

@@ -4,6 +4,9 @@
   "type": "module",
   "description": "Local-first MCP knowledge hub for AI agents using git-backed markdown cards.",
   "main": "dist/index.js",
+  "bin": {
+    "cardloom-mcp": "bin/cardloom-mcp.mjs"
+  },
   "scripts": {
     "prebuild": "rm -rf dist",
     "build": "tsc && mkdir -p dist/web && cp -r src/web/public dist/web/public",
