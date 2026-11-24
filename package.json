@@ -1,6 +1,6 @@
 {
   "name": "cardloom-mcp",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "type": "module",
   "description": "Reviewed, git-backed engineering knowledge base for coding agents, served over MCP.",
   "main": "dist/index.js",
@@ -44,7 +44,7 @@
   },
   "homepage": "https://github.com/bangca85/cardloom-mcp#readme",
   "engines": {
-    "node": "^20.0.0 || ^22.0.0 || >=24.0.0"
+    "node": ">=22"
   },
   "files": [
     "dist/",
@@ -62,7 +62,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "async-mutex": "^0.5.0",
-    "better-sqlite3": "^12.8.0",
+    "better-sqlite3": "^13.2.0",
     "express": "^4.22.3",
     "glob": "^14.0.6",
     "gray-matter": "^4.0.3",
