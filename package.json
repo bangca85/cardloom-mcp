@@ -1,6 +1,6 @@
 {
   "name": "cardloom-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "Reviewed, git-backed engineering knowledge base for coding agents, served over MCP.",
   "main": "dist/index.js",
