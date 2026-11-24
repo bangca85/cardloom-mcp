@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.0.1
+
+- README: flow diagram as an image in "How it works" (the text version was cut off on npm).
+- SECURITY.md: private reporting link, supported versions and scope.
+
 ## 1.0.0
 
 First public release.
