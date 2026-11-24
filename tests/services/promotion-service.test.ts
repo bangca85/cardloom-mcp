@@ -31,8 +31,8 @@ function gitIn(cwd: string, args: string[], date = PAST): string {
 
 function commit(repo: string, file: string, date = PAST): string {
   // Fixed content, identity and dates keep every commit hash identical from run to run. A random
-  // payload made the hashes random, and extractSha rejects an abbreviation without both a digit and
-  // a letter (about 2.4% of 8-character prefixes), which made this suite fail now and then in CI.
+  // payload made the hashes random, and extractSha once rejected an abbreviation without both a digit
+  // and a letter (about 2.4% of 8-character prefixes), which made this suite fail now and then in CI.
   fs.writeFileSync(path.join(repo, file), `${file}\n`);
   gitIn(repo, ['add', file], date);
   gitIn(repo, ['commit', '-q', '-m', file], date);
@@ -62,12 +62,20 @@ function statusOf(storePath: string, id: string): Record<string, unknown> {
 }
 
 describe('extractSha / repoCandidates', () => {
-  it('takes the first sha-shaped token and ignores numbers and hex-only words', () => {
+  it('takes the first sha-shaped token and ignores hex-only words', () => {
     expect(extractSha('d33d8a34')).toBe('d33d8a34');
     expect(extractSha("'9f1c2ab0 (story 5.26, epic/5)'")).toBe('9f1c2ab0');
     expect(extractSha('ticket 12345678 then 0a1b2c3d')).toBe('0a1b2c3d');
     expect(extractSha('defaced decade')).toBeNull();
     expect(extractSha('working tree')).toBeNull();
+  });
+
+  it('falls back to an all-digit token (a real abbreviation can be all digits), after any mixed token', () => {
+    expect(extractSha('1234567')).toBe('1234567');
+    expect(extractSha('commit 20261124 on main')).toBe('20261124');
+    expect(extractSha('1234567 and 12345678')).toBe('1234567');
+    expect(extractSha('1234567 then 0a1b2c3d')).toBe('0a1b2c3d');
+    expect(extractSha('123456')).toBeNull(); // shorter than 7
   });
 
   it('treats source_repo as authoritative and falls back to applies_to', () => {
@@ -173,6 +181,28 @@ describe('runPromotion', () => {
 
     expect(report.entries[0]).toMatchObject({ decision: 'would_verify' });
     expect(report.entries[0]!.resolution?.via).toBe('first-parent');
+  });
+
+  it('promotes a commit whose abbreviation is made only of digits', async () => {
+    // Hashes are deterministic here, so this search always stops at the same commit.
+    let digits = '';
+    for (let i = 0; i < 400 && !digits; i++) {
+      const h = commit(repo, `digits-${i}.txt`, FUTURE);
+      if (/^[0-9]{7}$/.test(h.slice(0, 7))) digits = h.slice(0, 7);
+    }
+    expect(digits).not.toBe('');
+    const { id } = await saveLearningDraft(db, storePath, draft({ source_commit: digits }));
+
+    const report = await runPromotion(db, storePath, opts({ dryRun: true }));
+
+    expect(report.entries.map((e) => [e.id, e.decision])).toEqual([[id, 'would_verify']]);
+  });
+
+  it('skips a ticket number that is not a commit in the repo as unresolvable, not as "no sha"', async () => {
+    await saveLearningDraft(db, storePath, draft({ source_commit: 'ticket 1234567' }));
+    const report = await runPromotion(db, storePath, opts({ dryRun: true }));
+    expect(report.entries[0]).toMatchObject({ decision: 'skipped' });
+    expect(report.entries[0]!.reason).toMatch(/^unresolvable:/);
   });
 
   it('skips a card about code that was already on main when it was written', async () => {

@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.1.1
+
+- Merge promotion: a `source_commit` whose abbreviation is made only of digits (about 4% of 7-character
+  abbreviations) is now recognised as a commit instead of being skipped with "no sha". It is used only
+  when no token with both a digit and a letter exists, and it still has to resolve to a real commit.
+
 ## 1.1.0
 
 - Requires Node 22 or newer (Node 20 reached end of life in April 2026). CI now runs 22 and 24.
