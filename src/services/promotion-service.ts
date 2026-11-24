@@ -65,13 +65,23 @@ const NAME_RE = /^[A-Za-z0-9_.-]+$/;
 // the code the card is about was never in that sha, so its merge proves nothing.
 const UNCOMMITTED_RE = /working tree|uncommitted|local change|\+\s*local/i;
 
-/** First token that looks like a commit: 7-40 hex with at least one digit and one letter
- * (so "1234567" ticket numbers and words like "defaced" are not mistaken for a sha). */
+/**
+ * The commit named in `source_commit`: the first 7-40 hex token that has both a digit and a letter.
+ * An abbreviation made only of digits is a real sha about 4% of the time (7 characters), but it also
+ * looks like a ticket number, so it is used only when no mixed token exists. Resolution still has to
+ * find that commit in the repo, so a ticket number ends as "unresolvable", not as a promotion.
+ * Tokens made only of letters (words such as "defaced") are never taken.
+ */
 export function extractSha(sourceCommit: string): string | null {
+  let digitsOnly: string | null = null;
   for (const m of sourceCommit.toLowerCase().matchAll(SHA_RE)) {
-    if (/[a-f]/.test(m[0]) && /[0-9]/.test(m[0])) return m[0];
+    const token = m[0];
+    const hasLetter = /[a-f]/.test(token);
+    const hasDigit = /[0-9]/.test(token);
+    if (hasLetter && hasDigit) return token;
+    if (hasDigit && digitsOnly === null) digitsOnly = token;
   }
-  return null;
+  return digitsOnly;
 }
 
 export interface RepoCandidate {
