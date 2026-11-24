@@ -30,7 +30,10 @@ function gitIn(cwd: string, args: string[], date = PAST): string {
 }
 
 function commit(repo: string, file: string, date = PAST): string {
-  fs.writeFileSync(path.join(repo, file), `${file} ${Math.random()}\n`);
+  // Fixed content, identity and dates keep every commit hash identical from run to run. A random
+  // payload made the hashes random, and extractSha rejects an abbreviation without both a digit and
+  // a letter (about 2.4% of 8-character prefixes), which made this suite fail now and then in CI.
+  fs.writeFileSync(path.join(repo, file), `${file}\n`);
   gitIn(repo, ['add', file], date);
   gitIn(repo, ['commit', '-q', '-m', file], date);
   return gitIn(repo, ['rev-parse', 'HEAD']);
@@ -117,6 +120,8 @@ describe('runPromotion', () => {
     base = commit(repo, 'base.txt');
     gitIn(repo, ['checkout', '-q', '-b', 'feature']);
     feature = commit(repo, 'feature.txt');
+    // Fixture invariant: the abbreviations the tests below take from this hash must be accepted as a sha.
+    for (const n of [8, 10]) expect(extractSha(feature.slice(0, n))).not.toBeNull();
     gitIn(repo, ['checkout', '-q', '-b', 'wip', 'main']);
     unmerged = commit(repo, 'wip.txt');
     gitIn(repo, ['checkout', '-q', 'main']);
