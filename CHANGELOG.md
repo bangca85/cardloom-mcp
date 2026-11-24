@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.1.2
+
+- Listed in the official MCP Registry as `io.github.bangca85/cardloom-mcp`: `mcpName` in `package.json`
+  and a `server.json` at the repository root.
+
 ## 1.1.1
 
 - Merge promotion: a `source_commit` whose abbreviation is made only of digits (about 4% of 7-character
