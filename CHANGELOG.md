@@ -8,9 +8,6 @@ All notable changes to this project will be documented in this file.
 - `better-sqlite3` 13: ships its prebuilt binaries inside the package, so installing no longer runs a
   download-or-compile script. This avoids the npm warning about install scripts and the
   "unsupported" deprecation notice for `prebuild-install`.
-
-## 1.0.1
-
 - README: flow diagram as an image in "How it works" (the text version was cut off on npm).
 - SECURITY.md: private reporting link, supported versions and scope.
 
