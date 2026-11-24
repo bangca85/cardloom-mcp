@@ -70,6 +70,9 @@ stack:
 domain: backend
 ```
 
+To have your agent use the tools without being asked each time, see
+[Enforcing usage](#enforcing-usage-claudemd--agentsmd--geminimd).
+
 ## Setup
 
 The server exposes the same five tools with each setup option.
@@ -86,6 +89,9 @@ Needs Node 20, 22 or 24+ (CI runs 20 and 22). The launcher keeps your cards in
 claude mcp add cardloom -- npx -y cardloom-mcp
 npx cardloom-mcp doctor   # read-only health check: store path, card counts by status
 ```
+
+`claude mcp add` registers the server for the current project only; add `--scope user` to use it
+everywhere (see [Set it up once for all projects](#set-it-up-once-for-all-projects)).
 
 Other clients use the same command. Cursor (`~/.cursor/mcp.json`):
 
@@ -279,12 +285,19 @@ Workflow for a brand-new repo:
 4. Point your agent/client at it so `search_knowledge` calls include `context: {stack, versions, project, aliases}`
    read from that file.
 
-## Enforcing usage from a consumer project's CLAUDE.md / AGENTS.md
+## Enforcing usage (CLAUDE.md / AGENTS.md / GEMINI.md)
 
-Nothing forces the agent to call these tools — MCP tools only fire when the model decides to.
-To have your agent search before answering, report whether a card helped, and save new lessons as
-drafts, add the instructions below to the project's `CLAUDE.md` (Claude Code) or `AGENTS.md` (Codex,
-which does not read `CLAUDE.md`). If both clients touch the repo, add them to both files.
+Nothing forces the agent to call these tools — MCP tools only fire when the model decides to. To have
+your agent search before answering, report whether a card helped, and save new lessons as drafts, give it
+the instructions below, in either of two places:
+
+- **Globally, once for every project:** put the block in your client's global instructions file. See
+  [Set it up once for all projects](#set-it-up-once-for-all-projects).
+- **Per project:** put it in the repo's own `CLAUDE.md` (Claude Code), `AGENTS.md` (Codex) or `GEMINI.md`
+  (Gemini CLI). Codex does not read `CLAUDE.md`, and Gemini CLI reads `AGENTS.md` only if you list it in
+  `context.fileName`. If several clients work in the repo, add the block to each client's file.
+
+Use one place or the other: the same block in both only costs tokens.
 
 ````markdown
 ## Knowledge Hub (MCP `cardloom`) — required
@@ -333,6 +346,34 @@ then ask for confirmation on which direction before calling `update_card_status`
 `save_learning_draft(supersedes=...)`. Don't decide alone when the mismatch affects an
 architecture or security call.
 ````
+
+### Set it up once for all projects
+
+Register the server for every project, and put the instruction block above in the client's global file:
+
+| Client | Register the server for all projects | Global instructions file |
+| --- | --- | --- |
+| Claude Code | `claude mcp add --scope user cardloom -- npx -y cardloom-mcp` | `~/.claude/CLAUDE.md` |
+| Codex (OpenAI's coding agent) | `codex mcp add cardloom -- npx -y cardloom-mcp` | `~/.codex/AGENTS.md` |
+| Gemini CLI | `gemini mcp add --scope user cardloom npx -y cardloom-mcp` | `~/.gemini/GEMINI.md` |
+
+- **Scope matters.** `claude mcp add` and `gemini mcp add` register the server for the current project
+  only unless you pass `--scope user`, so the Quickstart command is project-scoped. `codex mcp add` writes
+  `~/.codex/config.toml`, which is already global.
+- **Codex.** Use `~/.codex/AGENTS.override.md` for a temporary global override without touching the base
+  file. If you set `CODEX_HOME`, both files live there instead of `~/.codex`.
+- **Gemini CLI.** You can also add the server by hand to `~/.gemini/settings.json` (merge it with what is
+  already there):
+
+  ```json
+  { "mcpServers": { "cardloom": { "command": "npx", "args": ["-y", "cardloom-mcp"] } } }
+  ```
+
+  To make Gemini CLI read an `AGENTS.md` as well, set `"context": { "fileName": ["AGENTS.md", "GEMINI.md"] }`
+  in the same file.
+- **ChatGPT.** The ChatGPT chat apps do not read these files; Codex is the OpenAI client covered here.
+- **Check it worked.** Run `claude mcp list`, `codex mcp list` or `gemini mcp list` and look for `cardloom`,
+  then ask the agent to list its MCP tools. In Gemini CLI, `/memory show` prints the instructions it loaded.
 
 ## Approving knowledge in chat
 
