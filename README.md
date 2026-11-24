@@ -30,21 +30,9 @@ Claude Code, Cursor or Codex.
 The agent searches before it works, reports whether a card helped, and saves what it learned as a
 draft. You decide what a draft becomes:
 
-```text
- Your agent                     Cardloom                          Stored in git
- ──────────                     ────────                          ─────────────
- search_knowledge ───────────▶  verified cards, each with a
-                                `match` label (exact … related)
- report_card_usage ──────────▶  confirmed | refuted | neutral ──▶ events/<machine>.jsonl
- save_learning_draft ────────▶  new card, saved as a draft ─────▶ cards/<id>.md
-
- A card's life, driven by you with update_card_status:
-
-   draft ───── verify ─────▶ verified ───── deprecate ─────▶ deprecated
-   hidden from search        returned by default             final; the file
-   unless requested          searches                        stays for history
-   (a draft can also be deprecated directly)
-```
+<p align="center">
+  <img src="https://raw.githubusercontent.com/bangca85/cardloom-mcp/main/assets/how-it-works.png" alt="Flow: the agent calls search_knowledge, report_card_usage and save_learning_draft; Cardloom reads verified cards and writes feedback events and new draft cards to git. A card moves draft, verified, deprecated, and only a human approves those steps." width="900">
+</p>
 
 ## Tools
 
