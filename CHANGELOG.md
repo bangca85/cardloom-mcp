@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.1.0
+
+- Requires Node 22 or newer (Node 20 reached end of life in April 2026). CI now runs 22 and 24.
+- `better-sqlite3` 13: ships its prebuilt binaries inside the package, so installing no longer runs a
+  download-or-compile script. This avoids the npm warning about install scripts and the
+  "unsupported" deprecation notice for `prebuild-install`.
+
 ## 1.0.1
 
 - README: flow diagram as an image in "How it works" (the text version was cut off on npm).

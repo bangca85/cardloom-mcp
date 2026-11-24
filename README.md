@@ -88,7 +88,7 @@ Options 2 and 3 run from a clone: `git clone https://github.com/bangca85/cardloo
 
 ### Option 1: npx (no clone, no Docker)
 
-Needs Node 20, 22 or 24+ (CI runs 20 and 22). The launcher keeps your cards in
+Needs Node 22 or newer (CI runs 22 and 24). The launcher keeps your cards in
 `~/.cardloom/knowledge-store` and the SQLite index in `~/.cardloom/index.db`; set
 `KNOWLEDGE_STORE_PATH` / `INDEX_DB_PATH` to put them elsewhere.
 
