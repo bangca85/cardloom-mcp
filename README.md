@@ -27,6 +27,25 @@ Claude Code, Cursor or Codex.
   every response, secret patterns are rejected on save, and a card that conflicts with an existing
   one is refused instead of silently overwriting it.
 
+The agent searches before it works, reports whether a card helped, and saves what it learned as a
+draft. You decide what a draft becomes:
+
+```text
+ Your agent                     Cardloom                          Stored in git
+ ──────────                     ────────                          ─────────────
+ search_knowledge ───────────▶  verified cards, each with a
+                                `match` label (exact … related)
+ report_card_usage ──────────▶  confirmed | refuted | neutral ──▶ events/<machine>.jsonl
+ save_learning_draft ────────▶  new card, saved as a draft ─────▶ cards/<id>.md
+
+ A card's life, driven by you with update_card_status:
+
+   draft ───── verify ─────▶ verified ───── deprecate ─────▶ deprecated
+   hidden from search        returned by default             final; the file
+   unless requested          searches                        stays for history
+   (a draft can also be deprecated directly)
+```
+
 ## Tools
 
 | Tool | What it does |
