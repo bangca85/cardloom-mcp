@@ -179,12 +179,12 @@ export function createServer(db: Database.Database, knowledgeStorePath: string):
     {
       title: 'Update Card Status',
       description:
-        'Change a card\'s status. action="verify" (draft -> verified, only after a human reviewer approves it) or action="deprecate" (draft/verified -> deprecated, requires reason; the file is kept, never deleted — FR3). deprecated is terminal, there is no un-deprecate. When deprecating a draft because the learning is wrong, a duplicate or not worth keeping, start the reason with "rejected:". Any other transition returns invalid_transition with the valid options.',
+        'Change a card\'s status. action="verify" (draft -> verified, only after a human reviewer approves it) or action="deprecate" (draft/verified -> deprecated, requires reason; the file is kept, never deleted — FR3). action="reconfirm" (verified only: a human re-checked the card and it is still right; refreshes last_verified without changing status; refused for a card that needs review). deprecated is terminal, there is no un-deprecate. When deprecating a draft because the learning is wrong, a duplicate or not worth keeping, start the reason with "rejected:". Any other transition returns invalid_transition with the valid options.',
       inputSchema: {
         id: z.string().describe('Card id'),
         // Loose string, not z.enum, for the same reason as report_card_usage's outcome field —
         // an unrecognized action must map to our own invalid_transition contract (AD-7/AD-9).
-        action: z.string().describe('One of: verify, deprecate'),
+        action: z.string().describe('One of: verify, deprecate, reconfirm'),
         reason: z.string().optional().describe('Required when action is "deprecate"'),
         by: z.string().optional().describe('Who performed this action — defaults to REVIEWER_NAME or "human-reviewer"'),
         verification_method: z
@@ -193,6 +193,10 @@ export function createServer(db: Database.Database, knowledgeStorePath: string):
           .describe(
             'How the card was verified, for action "verify" — defaults to "chat-approval". When approving a candidate from `npm run promote-merged`, pass the evidence it printed (e.g. "merged:owner/repo@sha+chat-approval").',
           ),
+        expected_hash: z
+          .string()
+          .optional()
+          .describe('For action "reconfirm": sha256 of the card file as it was listed; refused if the file changed since'),
       },
     },
     withErrorBoundary((args) => handleUpdateCardStatus(db, knowledgeStorePath, args)),

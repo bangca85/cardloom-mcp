@@ -20,6 +20,7 @@
     "triage-drafts": "node dist/cli/triage-drafts.js",
     "upgrade-check": "node dist/cli/upgrade-check.js",
     "report": "node dist/cli/report.js",
+    "reconfirm": "node dist/cli/reconfirm.js",
     "promote-merged": "node dist/cli/promote-merged.js",
     "test": "vitest run",
     "test:watch": "vitest",

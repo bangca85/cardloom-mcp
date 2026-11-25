@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- `update_card_status` gains `action: "reconfirm"` (AD-9 amendment, owner decision 2026-11-25): on a `verified` card it
+  refreshes `last_verified` to now and sets `verification_method` to `reconfirmed:<previous method>` (a single prefix),
+  leaving `status`, `verified_by`, the usage counters and the event log alone; commit `knowledge: reconfirm <id>`. Any
+  other status is `invalid_transition`, and so is a card that needs review (`<id> needs review (N refutations): supersede
+  it with a corrected card instead`). An optional `expected_hash` (sha256 of the card file) is checked under the write
+  lock; a mismatch is `invalid_transition` (`<id> changed since it was listed; list it again`) and nothing is written.
+- New `reconfirm` command (`npx cardloom-mcp reconfirm --stale [--json]`, `reconfirm --confirm <id>@<hash>[,...] [--by name]`;
+  also `npm run reconfirm`): lists stale verified cards oldest first with the hash to confirm them with, and re-confirms
+  the ones you name. A refused entry does not stop the others; the exit code is 1 if any was refused.
+
 ## 1.2.0
 
 - New `report` command (`npx cardloom-mcp report [--days 7] [--json]`, `--days` up to 36500; also `npm run report`): confirmed / refuted / neutral counts in the

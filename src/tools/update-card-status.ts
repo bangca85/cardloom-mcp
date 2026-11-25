@@ -7,6 +7,7 @@ export interface UpdateCardStatusArgs {
   reason?: string;
   by?: string;
   verification_method?: string;
+  expected_hash?: string;
 }
 
 export async function handleUpdateCardStatus(
@@ -20,6 +21,7 @@ export async function handleUpdateCardStatus(
     ...(args.reason !== undefined && { reason: args.reason }),
     ...(args.by !== undefined && { by: args.by }),
     ...(args.verification_method !== undefined && { method: args.verification_method }),
+    ...(args.expected_hash !== undefined && { expected_hash: args.expected_hash }),
   };
 
   const result = await updateCardStatus(db, storePath, input);

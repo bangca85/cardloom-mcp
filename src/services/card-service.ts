@@ -14,6 +14,7 @@ import { cardSource, type CardSource } from '../utils/card-source.js';
 import { config } from '../config/env.js';
 import { ConflictError, NotFoundError, ValidationError, InvalidTransitionError } from '../types/errors.js';
 import { insertCardRelationsAndStacks } from '../db/schema.js';
+import { cardFileHash } from '../utils/card-file-hash.js';
 
 /** Shared shape-builder for card frontmatter — used by every write path so no two places drift. */
 function cardToFrontmatter(card: Card): Record<string, unknown> {
@@ -462,7 +463,7 @@ export function renderCard(db: Database.Database, id: string, now: Date = new Da
   };
 }
 
-export type UpdateCardStatusAction = 'verify' | 'deprecate';
+export type UpdateCardStatusAction = 'verify' | 'deprecate' | 'reconfirm';
 
 // Closed transition table (AD-9): keyed by current status, values are the target statuses
 // reachable from it. `deprecated` is terminal — no un-deprecate, ever.
@@ -483,6 +484,8 @@ export interface UpdateCardStatusInput {
   reason?: string;
   by?: string;
   method?: string;
+  /** reconfirm only: sha256 of the card file as it was listed; checked under the lock, a mismatch refuses. */
+  expected_hash?: string;
 }
 
 export interface UpdateCardStatusResult {
@@ -524,7 +527,8 @@ function assertNotAlreadySuperseded(
 
 /**
  * The only place a card's status ever changes (AD-9). `verify` and `deprecate` are the sole
- * actions; deprecate is invalidate-and-preserve (FR3) — the file is rewritten, never deleted.
+ * actions that change it; deprecate is invalidate-and-preserve (FR3) — the file is rewritten, never deleted.
+ * `reconfirm` (AD-9 amendment 2026-11-25) keeps a verified card verified and only refreshes `last_verified`.
  */
 export async function updateCardStatus(
   db: Database.Database,
@@ -551,9 +555,15 @@ export async function updateCardStatus(
   }
 
   const validTargets = VALID_TRANSITIONS[row.status];
-  const targetStatus = ACTION_TARGET_STATUS[input.action];
-  if (!targetStatus || !validTargets.includes(targetStatus)) {
-    throw new InvalidTransitionError(row.status, input.action, validTargets);
+  const isReconfirm = input.action === 'reconfirm';
+  if (isReconfirm) {
+    // AD-9 amendment 2026-11-25: not a transition (status stays `verified`), so it is not in VALID_TRANSITIONS.
+    if (row.status !== 'verified') throw new InvalidTransitionError(row.status, input.action, validTargets);
+  } else {
+    const targetStatus = ACTION_TARGET_STATUS[input.action];
+    if (!targetStatus || !validTargets.includes(targetStatus)) {
+      throw new InvalidTransitionError(row.status, input.action, validTargets);
+    }
   }
 
   if (input.action === 'deprecate' && !input.reason) {
@@ -621,7 +631,30 @@ export async function updateCardStatus(
       const now = new Date().toISOString();
       const nextFrontmatter: Record<string, unknown> = { ...parsed.data };
 
-      if (input.action === 'verify') {
+      if (isReconfirm) {
+        // Under the lock: the file may have changed since it was listed, been deprecated, or collected refutations.
+        if (input.expected_hash !== undefined && cardFileHash(storePath, input.id) !== input.expected_hash) {
+          throw new InvalidTransitionError(row.status, input.action, validTargets, `${input.id} changed since it was listed; list it again`);
+        }
+        const currentStatus = String(parsed.data['status']);
+        if (currentStatus !== 'verified') {
+          throw new InvalidTransitionError(currentStatus, input.action, VALID_TRANSITIONS[currentStatus as Card['status']] ?? []);
+        }
+        const counters = db.prepare('SELECT failure FROM counters WHERE card_id = ?').get(input.id) as { failure: number } | undefined;
+        const failure = counters?.failure ?? 0;
+        if (computeCardFlags({ last_verified: null, failure }, new Date()).needs_review) {
+          throw new InvalidTransitionError(
+            row.status,
+            input.action,
+            validTargets,
+            `${input.id} needs review (${failure} refutations): supersede it with a corrected card instead`,
+          );
+        }
+        // One `reconfirmed:` prefix, however many times it is reconfirmed. status and verified_by stay as they are.
+        const previous = String(parsed.data['verification_method'] ?? '').replace(/^(reconfirmed:)+/, '');
+        nextFrontmatter['verification_method'] = `reconfirmed:${previous === '' ? 'unknown' : previous}`;
+        nextFrontmatter['last_verified'] = now;
+      } else if (input.action === 'verify') {
         nextFrontmatter['status'] = 'verified';
         nextFrontmatter['verified_by'] = input.by ?? 'bradley';
         nextFrontmatter['verification_method'] = input.method ?? 'chat-approval';
@@ -685,7 +718,9 @@ export async function updateCardStatus(
     },
     filesToCommit,
     commitMessage: () =>
-      supersedeApplies && supersedeTargetId
+      isReconfirm
+        ? `knowledge: reconfirm ${input.id}`
+        : supersedeApplies && supersedeTargetId
         ? `knowledge: verify ${input.id} (supersedes ${supersedeTargetId})`
         : `knowledge: ${input.action} ${input.id}${input.reason ? ` (${input.reason})` : ''}`,
     updateIndex: (idxDb) => {

@@ -41,7 +41,7 @@ draft. You decide what a draft becomes:
 | `search_knowledge` | Find cards by keywords or a pasted error message; returns compact results with a `match` label. |
 | `get_card` | Read one card in full (also available as the resource `knowledge://card/{id}`). Carries `source` (`repo`, 7-character `commit`, `approved_at` date; each `null` when unknown) so you can tell where it came from. Reports `replacement.pending` (a draft proposes to replace it; it is still the current answer) and `replacement.superseded_by` (read that card instead). |
 | `save_learning_draft` | Save a new card as a draft. |
-| `update_card_status` | Verify or deprecate a card; agents should call it only when you tell them to. |
+| `update_card_status` | Verify, deprecate or reconfirm a card; agents should call it only when you tell them to. |
 | `report_card_usage` | Report whether a card helped: `confirmed`, `refuted` or `neutral`. |
 
 There is also one prompt, `distill_project_knowledge`, which guides an agent through turning an existing
@@ -462,6 +462,25 @@ until it is verified. To promote or retire one:
   on a draft does this for you. `distill_project_knowledge` reads that prefix and tells the agent not to save
   the same learning again unless the new draft says what is different.
 
+### Re-confirming old cards
+
+A verified card last verified more than `STALE_THRESHOLD_DAYS` ago is flagged `stale`. If you check it and it is
+still right, re-confirm it instead of verifying a new card: `update_card_status(id, "reconfirm")` keeps the card
+`verified`, sets `last_verified` to now and writes `verification_method: reconfirmed:<previous method>` (one
+prefix, however many times). Nothing else changes: not the status, not `verified_by`, not the usage counters.
+It is refused for a card that needs review (refuted `REVIEW_FAILURE_THRESHOLD` times or more): supersede it with
+a corrected card instead. From the shell:
+
+```bash
+npx cardloom-mcp reconfirm --stale          # list stale cards, oldest first, with id, title, age and a hash (--json for scripts)
+npx cardloom-mcp reconfirm --confirm pattern-a@<hash>,gotcha-b@<hash> --by alice
+```
+
+`--confirm` re-confirms each `id@hash` it is given and refuses an entry whose card file changed since it was listed
+(the hash is checked under the write lock), has an unknown id, or needs review; the other entries are still applied,
+each refusal is printed on stderr and the exit code is 1. `--by` defaults to `REVIEWER_NAME` and is recorded in
+nothing but the command's output line (the commit message is `knowledge: reconfirm <id>`). From a clone: `npm run reconfirm -- --stale`.
+
 `npm run doctor` shows how review is going: drafts waiting (and the age of the oldest), cards approved by
 a human, by merge promotion, rejected, and retired before review, and the human approval rate (of drafts a
 human approved or rejected; merge promotion and retired drafts are listed beside it, not in it). A card counts
@@ -791,6 +810,7 @@ npm run doctor          # read-only store health check (path, git, card counts b
 npm run triage-drafts   # read-only: drafts with the cards to compare them with
 npm run upgrade-check -- --to nextjs@15.0.0   # read-only: cards affected by a version change (needs .knowledge-map.yaml in the cwd)
 npm run report          # read-only: what the store did in the last 7 days (--days <n>, --json)
+npm run reconfirm -- --stale   # list stale verified cards; --confirm <id>@<hash> re-confirms them
 npm run web             # local web viewer (List / Graph view) on http://127.0.0.1:3334
 npm run promote-merged  # list or verify drafts whose source commit was merged
 docker compose build && docker compose run --rm -i cardloom-mcp
