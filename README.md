@@ -261,6 +261,23 @@ benchmark, putting the project ahead of the text score pushed exact matches from
 matches from the caller's own project. Run `npm run benchmark -- --matrix` against your own store before
 enabling them.
 
+## What is tested
+
+[`tests/integration/trust-guarantees.test.ts`](tests/integration/trust-guarantees.test.ts) checks the JSON
+that `search_knowledge` and `get_card` return, not internal objects, for these behaviours:
+
+- **Filtered by default.** A default search does not return draft, deprecated or restricted cards, and does
+  not return a card that has been superseded.
+- **Labelled when requested.** With `include_drafts`, a draft is returned with `untrusted: true`, and
+  `get_card` labels the same draft `untrusted: true`.
+- **Flagged when old.** A card last verified more than `STALE_THRESHOLD_DAYS` ago carries `flags.stale: true`
+  in search results (the test uses a card verified 400 days before a fixed date).
+- **Replacement reported.** `get_card` on a superseded card names the card that replaced it in
+  `replacement.superseded_by`.
+
+The test shows what the server returns and how it labels it. Whether an agent acts on those labels is not
+covered by this test.
+
 ## `.knowledge-map.yaml` — giving the agent context per repo
 
 Add a `.knowledge-map.yaml` to the root of each project you work on. Your agent reads it and passes the

@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Tests: `tests/integration/trust-guarantees.test.ts` checks, on the JSON `search_knowledge` and `get_card` return, that
+  drafts, deprecated, restricted and superseded cards are not returned by default, that drafts are labelled
+  `untrusted`, that an old card is flagged `stale`, and that a superseded card reports its replacement. The README
+  has a new "What is tested" section.
 - Benchmark: `--compare-limits` runs every query with `limit` 5 and with `limit` 10 (two real runs) for each
   ranking and prints recall@5 and recall@10 per kind plus the estimated response tokens (mean and p95,
   measured on the JSON `search_knowledge` returns, characters / 4). `--limit <n>` runs a single benchmark at
