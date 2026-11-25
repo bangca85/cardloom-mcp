@@ -53,8 +53,8 @@ export function buildReport(
   const newlyNeedsReview = (
     db
       .prepare(
-        `SELECT k.card_id AS id FROM counters k
-         WHERE k.failure >= @threshold AND EXISTS (
+        `SELECT k.card_id AS id FROM counters k JOIN cards c ON c.id = k.card_id
+         WHERE c.status != 'deprecated' AND k.failure >= @threshold AND EXISTS (
            SELECT 1 FROM usage_events e
            WHERE e.card_id = k.card_id AND e.outcome = 'refuted' AND ${windowOf('e.at')}
          ) ORDER BY k.card_id`,

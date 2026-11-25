@@ -131,10 +131,12 @@ describe('buildReport', () => {
     for (let i = 0; i < threshold; i++) event('n-old', 'refuted', ago(60));
     // n-low: a fresh refute but total below threshold
     for (let i = 0; i < threshold - 1; i++) event('n-low', 'refuted', ago(1));
-    // missing card still listed by id
+    // a deprecated card and a card missing from the index cannot be acted on, so they are not listed
+    insertCard('n-retired', { status: 'deprecated' });
+    for (let i = 0; i < threshold; i++) event('n-retired', 'refuted', ago(2));
     for (let i = 0; i < threshold; i++) event('n-missing', 'refuted', ago(2));
     const r = report();
-    expect(r.newlyNeedsReview).toEqual(['n-missing', 'n-new']);
+    expect(r.newlyNeedsReview).toEqual(['n-new']);
   });
 
   it('staleWithin30Days: verified cards with age in (STALE-30, STALE], boundaries exact', () => {
