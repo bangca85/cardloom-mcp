@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import { config } from '../config/env.js';
 import { daysSince } from '../utils/date.js';
-import type { DoctorReport } from '../cli/doctor.js';
+import type { ReviewStats } from '../types/review-stats.js';
 
 const TOP_LIMIT = 5;
 
@@ -13,7 +13,7 @@ export interface UsageReport {
   topConfirmed: Array<{ id: string; title: string; count: number }>;
   newlyNeedsReview: string[];
   staleWithin30Days: string[];
-  review: DoctorReport['review'];
+  review: ReviewStats;
 }
 
 /**
@@ -23,7 +23,7 @@ export interface UsageReport {
  */
 export function buildReport(
   db: Database.Database,
-  opts: { days: number; now: Date; review: DoctorReport['review'] },
+  opts: { days: number; now: Date; review: ReviewStats },
 ): UsageReport {
   const { days, now, review } = opts;
   const windowEnd = now.toISOString();

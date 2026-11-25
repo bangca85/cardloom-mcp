@@ -4,14 +4,14 @@ import { initializeSchema } from '../../src/db/schema.js';
 import { foldEvent } from '../../src/services/event-log-service.js';
 import type { UsageOutcome } from '../../src/services/event-log-service.js';
 import { buildReport } from '../../src/services/report-service.js';
-import type { DoctorReport } from '../../src/cli/doctor.js';
+import type { ReviewStats } from '../../src/types/review-stats.js';
 import { config } from '../../src/config/env.js';
 
 const NOW = new Date('2026-11-25T12:00:00Z');
 const DAY = 86_400_000;
 const ago = (days: number): string => new Date(NOW.getTime() - days * DAY).toISOString();
 
-const REVIEW: DoctorReport['review'] = {
+const REVIEW: ReviewStats = {
   pendingDrafts: 2,
   oldestDraftDays: 4,
   approvedByHuman: 0,

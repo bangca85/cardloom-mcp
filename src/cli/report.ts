@@ -4,8 +4,8 @@ import { config } from '../config/env.js';
 import { buildReport } from '../services/report-service.js';
 import type { UsageReport } from '../services/report-service.js';
 import { buildFreshIndex } from './benchmark.js';
+import { emptyReview } from '../types/review-stats.js';
 import { computeReview, firstAddedByCard } from './doctor.js';
-import type { DoctorReport } from './doctor.js';
 
 const DEFAULT_DAYS = 7;
 
@@ -47,15 +47,6 @@ export function formatReport(r: UsageReport): string {
  */
 export async function runReport(storePath: string, opts: { days: number; json?: boolean; now?: Date }): Promise<string> {
   const now = opts.now ?? new Date();
-  const emptyReview: DoctorReport['review'] = {
-    pendingDrafts: 0,
-    oldestDraftDays: null,
-    approvedByHuman: 0,
-    approvedByMergePromotion: 0,
-    rejectedByHuman: 0,
-    retiredUnreviewed: 0,
-    humanApprovalRate: null,
-  };
   let report: UsageReport = {
     days: opts.days,
     confirmed: 0,
@@ -64,7 +55,7 @@ export async function runReport(storePath: string, opts: { days: number; json?: 
     topConfirmed: [],
     newlyNeedsReview: [],
     staleWithin30Days: [],
-    review: emptyReview,
+    review: emptyReview(),
   };
   if (isDirectory(storePath)) {
     const db = await buildFreshIndex(storePath);
