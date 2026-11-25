@@ -90,7 +90,7 @@ export function firstAddedByCard(storePath: string): Map<string, number> {
   return added;
 }
 
-function computeReview(db: Database.Database, now: Date, firstAdded: Map<string, number>): ReviewStats {
+export function computeReview(db: Database.Database, now: Date, firstAdded: Map<string, number>): ReviewStats {
   const review = emptyReview();
   const rows = db
     .prepare(

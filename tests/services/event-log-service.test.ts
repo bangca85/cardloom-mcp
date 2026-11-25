@@ -200,3 +200,90 @@ describe('foldAllEvents', () => {
     expect(readCounters(db, 'pattern-once')).toEqual({ usage: 1, success: 1, failure: 0 });
   });
 });
+
+describe('usage_events (derived, filled by the one fold)', () => {
+  let db: Database.Database;
+  let storePath: string;
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    initializeSchema(db);
+    storePath = tmpDir();
+  });
+
+  afterEach(() => {
+    db.close();
+    fs.rmSync(storePath, { recursive: true, force: true });
+  });
+
+  function rows(): Array<{ card_id: string; outcome: string; at: string; repo: string | null }> {
+    return db
+      .prepare('SELECT card_id, outcome, at, repo FROM usage_events ORDER BY at, card_id')
+      .all() as Array<{ card_id: string; outcome: string; at: string; repo: string | null }>;
+  }
+
+  function writeEvents(events: UsageEvent[]): void {
+    const eventsDir = path.join(storePath, 'events');
+    fs.mkdirSync(eventsDir, { recursive: true });
+    fs.writeFileSync(path.join(eventsDir, 'laptop.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n');
+  }
+
+  const EVENTS: UsageEvent[] = [
+    { v: 1, card: 'pattern-a', outcome: 'confirmed', at: '2026-01-01T00:00:00Z', repo: 'org/app' },
+    { v: 1, card: 'pattern-a', outcome: 'refuted', at: '2026-01-02T00:00:00Z' },
+    { v: 1, card: 'pattern-b', outcome: 'neutral', at: '2026-01-03T00:00:00Z' },
+  ];
+
+  it('foldEvent of 3 events fills usage_events with card, outcome, at and repo', () => {
+    for (const e of EVENTS) foldEvent(db, e);
+    expect(rows()).toEqual([
+      { card_id: 'pattern-a', outcome: 'confirmed', at: '2026-01-01T00:00:00Z', repo: 'org/app' },
+      { card_id: 'pattern-a', outcome: 'refuted', at: '2026-01-02T00:00:00Z', repo: null },
+      { card_id: 'pattern-b', outcome: 'neutral', at: '2026-01-03T00:00:00Z', repo: null },
+    ]);
+  });
+
+  it('foldAllEvents twice leaves the same rows (no duplicates) and unchanged counters', () => {
+    writeEvents(EVENTS);
+    foldAllEvents(db, storePath);
+    const first = rows();
+    foldAllEvents(db, storePath);
+    expect(rows()).toEqual(first);
+    expect(first).toHaveLength(3);
+    expect(readCounters(db, 'pattern-a')).toEqual({ usage: 2, success: 1, failure: 1 });
+  });
+
+  it('a full fold equals what live folding the same events produced (rebuild == live)', () => {
+    for (const e of EVENTS) foldEvent(db, e);
+    const live = rows();
+    const liveCounters = readCounters(db, 'pattern-a');
+    writeEvents(EVENTS);
+    foldAllEvents(db, storePath);
+    expect(rows()).toEqual(live);
+    expect(readCounters(db, 'pattern-a')).toEqual(liveCounters);
+  });
+
+  it('a full fold with no events dir clears usage_events too', () => {
+    foldEvent(db, EVENTS[0]!);
+    foldAllEvents(db, storePath);
+    expect(rows()).toEqual([]);
+  });
+
+  it('an event with an unparseable at does not crash the fold', () => {
+    expect(() => foldEvent(db, { v: 1, card: 'pattern-a', outcome: 'confirmed', at: 'not-a-date' })).not.toThrow();
+    expect(readCounters(db, 'pattern-a')).toEqual({ usage: 1, success: 1, failure: 0 });
+  });
+
+  it('initializeSchema adds the table (and index on at) to an old index that lacks it, keeping existing data', () => {
+    initializeSchema(db);
+    db.exec('DROP TABLE usage_events');
+    // Old index: counters exist, usage_events does not.
+    db.prepare("INSERT INTO counters (card_id, usage, success, failure) VALUES ('pattern-old', 1, 1, 0)").run();
+    expect(() => initializeSchema(db)).not.toThrow();
+    expect(() => initializeSchema(db)).not.toThrow();
+    expect(rows()).toEqual([]);
+    expect(readCounters(db, 'pattern-old')).toEqual({ usage: 1, success: 1, failure: 0 });
+    const idx = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'usage_events'").all();
+    expect(idx.length).toBeGreaterThan(0);
+  });
+});

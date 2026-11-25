@@ -485,6 +485,35 @@ not predict what `verify` will do (verify does not run the conflict check). `--l
 oldest `n` drafts; `--json` prints the report as JSON. It reads the card files, not `index.db`, so it works
 without the server running.
 
+### Reading the report
+
+`npx cardloom-mcp report` shows what the store did in the last 7 days (`--days <n>` for another window, `--json` for
+scripts): how many times cards were reported `confirmed`, `refuted` and `neutral`, the five cards confirmed most
+often, cards that now need a look, verified cards that go stale within 30 days, and how many drafts are waiting.
+
+```
+$ npx cardloom-mcp report
+Last 7 days: 3 confirmed · 1 refuted · 1 neutral
+
+Cards that helped most
+  pattern-retry-payments · Retry payment requests with backoff (3)
+
+Cards that need a look
+  gotcha-old-config
+
+Cards going stale within 30 days
+  gotcha-old-config
+
+Drafts waiting: 1 (oldest 0 days)
+```
+
+"Cards that need a look" lists cards whose total refutes reached `REVIEW_FAILURE_THRESHOLD` (default 2) and that
+were refuted at least once inside the window. "Going stale" means the card's last verification is between
+`STALE_THRESHOLD_DAYS` minus 30 days (exclusive) and `STALE_THRESHOLD_DAYS` (default 180, inclusive) old. With no
+usage at all in the window it prints `No activity in the last N days.` instead of the counts. The numbers come from
+the usage events in `events/*.jsonl` (the same ones that feed the trust counters); the report is read-only, never
+creates the store and works without the server running.
+
 ### Checking an upgrade
 
 Before bumping a dependency, ask which verified cards it affects. Run this in a repo that has a

@@ -44,10 +44,12 @@ function isUsageEvent(value: unknown): value is UsageEvent {
   );
 }
 
-const stmtCache = new WeakMap<Database.Database, any>();
+const stmtCache = new WeakMap<Database.Database, Database.Statement>();
+const usageStmtCache = new WeakMap<Database.Database, Database.Statement>();
 
 /**
- * The ONE fold function — materializes a single usage event into the `counters` table.
+ * The ONE fold function — materializes a single usage event into the `counters` table and the
+ * `usage_events` table (one row per event, for time-windowed reports).
  * Called both right after append (inside the mutation pipeline) and during full-fold
  * (startup reconcile / rebuild-index). Never re-derive counter math anywhere else (AD-4).
  */
@@ -71,6 +73,13 @@ export function foldEvent(db: Database.Database, event: UsageEvent): void {
   }
 
   stmt.run({ card_id: event.card, success_inc: successInc, failure_inc: failureInc });
+
+  let usageStmt = usageStmtCache.get(db);
+  if (!usageStmt) {
+    usageStmt = db.prepare('INSERT INTO usage_events (card_id, outcome, at, repo) VALUES (@card_id, @outcome, @at, @repo)');
+    usageStmtCache.set(db, usageStmt);
+  }
+  usageStmt.run({ card_id: event.card, outcome: event.outcome, at: event.at, repo: event.repo ?? null });
 }
 
 export interface AppendUsageEventInput {
@@ -124,6 +133,7 @@ export function foldAllEvents(db: Database.Database, storePath: string): void {
   if (!fs.existsSync(eventsDir)) {
     const txn = db.transaction(() => {
       db.exec('DELETE FROM counters');
+      db.exec('DELETE FROM usage_events');
     });
     txn();
     return;
@@ -164,6 +174,7 @@ export function foldAllEvents(db: Database.Database, storePath: string): void {
 
   const txn = db.transaction(() => {
     db.exec('DELETE FROM counters');
+    db.exec('DELETE FROM usage_events');
     for (const event of events) {
       foldEvent(db, event);
     }

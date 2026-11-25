@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- New `report` command (`npx cardloom-mcp report [--days 7] [--json]`): confirmed / refuted / neutral counts in the
+  window, the five cards confirmed most, cards newly at `needs_review` (total refutes at the threshold and at least
+  one inside the window), verified cards that go stale within 30 days, and drafts waiting. Read-only. The derived
+  index gains a `usage_events` table (one row per usage event, created in place on older indexes), filled by the same
+  fold function as `counters`, so a full fold and a live fold give the same rows.
 - New `upgrade-check` command (`npx cardloom-mcp upgrade-check --to nextjs@15.0.0`): reads `.knowledge-map.yaml` in the
   current directory and, for each `--to <tech>@<version>`, lists the verified cards that stop applying, start applying
   or apply at both the mapped version and the target (at most 20 per list, `--json` for scripts). Read-only. The drift

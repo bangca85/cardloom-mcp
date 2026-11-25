@@ -42,6 +42,18 @@ export function initializeSchema(db: Database.Database): void {
       failure INTEGER NOT NULL DEFAULT 0
     );
 
+    -- Derived from events/*.jsonl by the one fold function (AD-4), like counters: one row per usage event so
+    -- time-windowed usage can be queried. No FK to cards(id) for the same reason as counters. Created
+    -- idempotently, so an index.db that predates it gets an empty table; the next full fold fills it.
+    CREATE TABLE IF NOT EXISTS usage_events (
+      card_id TEXT NOT NULL,
+      outcome TEXT NOT NULL,
+      at TEXT NOT NULL,
+      repo TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_usage_events_at ON usage_events(at);
+
     CREATE VIRTUAL TABLE IF NOT EXISTS cards_fts USING fts5(
       title,
       body,
