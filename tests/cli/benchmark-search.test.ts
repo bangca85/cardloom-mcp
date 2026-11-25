@@ -98,31 +98,41 @@ describe('benchmark against a fresh index', () => {
 interface CardOpts {
   type?: string;
   title: string;
-  status?: 'verified' | 'draft';
+  status?: 'verified' | 'draft' | 'deprecated';
   sensitivity?: 'normal' | 'restricted';
   appliesTo?: string;
   signature?: string;
   body?: string;
+  stack?: string;
+  versionRange?: string;
+  lastVerified?: string;
+  supersedes?: string;
+  deprecationReason?: string;
 }
 
 function cardFile(o: CardOpts): string {
   const type = o.type ?? 'pattern';
-  const verified = (o.status ?? 'verified') === 'verified';
+  const status = o.status ?? 'verified';
+  const verified = status === 'verified';
+  const lastVerified = o.lastVerified ?? '2026-01-01T00:00:00.000Z';
   return `---
 type: ${type}
 scope: project
 applies_to: [${o.appliesTo ?? 'api'}]
-stack: [node]
-version_range: ">=1.0.0"
-sensitivity: ${o.sensitivity ?? 'normal'}
+stack: [${o.stack ?? 'node'}]
+version_range: "${o.versionRange ?? '>=1.0.0'}"
+${o.supersedes ? `supersedes: ${o.supersedes}\n` : ''}sensitivity: ${o.sensitivity ?? 'normal'}
 source_commit: abc123
 provenance: agent-observation
 title: ${o.title}
-${o.signature ? `error_signature: "${o.signature}"\n` : ''}status: ${o.status ?? 'verified'}
+${o.signature ? `error_signature: "${o.signature}"\n` : ''}status: ${status}
 ${verified ? `verified_by: tester
 verification_method: manual-review
 verified_at: "2026-01-01T00:00:00.000Z"
-last_verified: "2026-01-01T00:00:00.000Z"
+last_verified: "${lastVerified}"
+` : ''}${status === 'deprecated' ? `deprecation_reason: ${o.deprecationReason ?? 'superseded'}
+deprecated_at: "2026-02-01T00:00:00.000Z"
+deprecated_by: tester
 ` : ''}---
 ${o.body ?? `Body for ${o.title}.`}
 `;
@@ -312,5 +322,178 @@ describe('benchmark v2', () => {
     expect(report.scored).toBe(1);
     expect(formatReport(report).split('\n')[0]).toBe('[benchmark] 1/1 top-1 hits (100.0%) across 1 scored of 3 queries');
     db.close();
+  });
+  describe('failure-type kinds', () => {
+    const NOW = new Date('2026-06-01T00:00:00.000Z');
+
+    it('superseded: replacedVisibleRate is 0 when the replaced card is deprecated, 1 when it was left verified', async () => {
+      writeCards({
+        'decision-retry-old': {
+          type: 'decision',
+          title: 'Retry policy v1',
+          status: 'deprecated',
+          deprecationReason: 'superseded by decision-retry-new',
+          body: 'retry policy fixed delay',
+        },
+        'decision-retry-new': {
+          type: 'decision',
+          title: 'Retry policy v2',
+          supersedes: 'decision-retry-old',
+          body: 'retry policy exponential backoff',
+        },
+      });
+      const db = await buildFreshIndex(store);
+      const q = {
+        query: 'retry policy',
+        kind: 'superseded' as const,
+        expected: 'decision-retry-new',
+        replaced: 'decision-retry-old',
+      };
+      const good = runBenchmark(db, [q], { now: NOW });
+      expect(good.byKind.superseded).toEqual({ n: 1, hit1: 1, mrr5: 1, replacedVisibleRate: 0 });
+      db.close();
+
+      // As after a hand edit: the new card declares `supersedes`, the old one was left verified.
+      fs.rmSync(path.join(store, 'cards'), { recursive: true });
+      writeCards({
+        'decision-retry-old': { type: 'decision', title: 'Retry policy v1', body: 'retry policy fixed delay' },
+        'decision-retry-new': {
+          type: 'decision',
+          title: 'Retry policy v2',
+          supersedes: 'decision-retry-old',
+          body: 'retry policy exponential backoff',
+        },
+      });
+      const db2 = await buildFreshIndex(store);
+      const bad = runBenchmark(db2, [q], { now: NOW });
+      expect(bad.byKind.superseded).toMatchObject({ n: 1, replacedVisibleRate: 1 });
+      db2.close();
+    });
+
+    it('stale: retrievedRate counts expected in top 5, flagAccuracy only the retrieved ones carrying flags.stale', async () => {
+      writeCards({
+        'pattern-old-cache': {
+          title: 'Cache invalidation old',
+          body: 'invalidate cache entries',
+          lastVerified: '2025-04-27T00:00:00.000Z', // 400 days before NOW
+        },
+        'pattern-fresh-cache': { title: 'Cache invalidation fresh', body: 'invalidate cache entries' },
+        'pattern-unrelated': { title: 'Queue workers', body: 'sharding workers' },
+      });
+      const db = await buildFreshIndex(store);
+      const report = runBenchmark(
+        db,
+        [
+          { query: 'invalidate cache entries', kind: 'stale', expected: 'pattern-old-cache' }, // retrieved + flagged
+          { query: 'invalidate cache entries', kind: 'stale', expected: 'pattern-fresh-cache' }, // retrieved, not flagged
+          { query: 'invalidate cache entries', kind: 'stale', expected: 'pattern-unrelated' }, // not retrieved
+        ],
+        { now: NOW },
+      );
+      expect(report.byKind.stale).toEqual({ n: 3, retrievedRate: 2 / 3, flagAccuracy: 0.5 });
+      db.close();
+    });
+
+    it('drift: flagAccuracy is the share of retrieved cards flagged drift for the caller versions', async () => {
+      writeCards({
+        'pattern-api-v2': { title: 'Api pagination v2', versionRange: '>=2 <3', body: 'pagination cursor' },
+        'pattern-api-v3': { title: 'Api pagination v3', versionRange: '>=3 <4', body: 'pagination cursor' },
+      });
+      const db = await buildFreshIndex(store);
+      const context = { stack: ['node'], versions: { node: '3.1.0' } };
+      const report = runBenchmark(db, [
+        { query: 'pagination cursor', kind: 'drift', expected: 'pattern-api-v2', context }, // drifted: flagged
+        { query: 'pagination cursor', kind: 'drift', expected: 'pattern-api-v3', context }, // in range: not flagged
+      ]);
+      expect(report.byKind.drift).toEqual({ n: 2, retrievedRate: 1, flagAccuracy: 0.5 });
+      db.close();
+    });
+
+    it('wrong_scope: wrongScopeTop1Rate counts a forbidden top-1 flagged or not, wrongTop1FlaggedRate only the drift-flagged ones', async () => {
+      writeCards({
+        // Drifts for node 3.1.0; most keyword hits, and no caller-stack match for either card, so it ranks first.
+        'pattern-node-v2': {
+          title: 'Lookup cache',
+          versionRange: '>=2 <3',
+          body: 'lookup cache lookup cache lookup cache lookup cache',
+        },
+        'pattern-python-cache': { title: 'Lookup cache python', stack: 'python', versionRange: '>=3', body: 'lookup cache' },
+      });
+      const db = await buildFreshIndex(store);
+      const withVersions = { stack: ['node'], versions: { node: '3.1.0' } };
+      const forbidden = ['pattern-node-v2'];
+      const base = { kind: 'wrong_scope' as const, expected: 'pattern-python-cache', forbidden };
+      const report = runBenchmark(db, [
+        { ...base, query: 'lookup cache', context: withVersions }, // forbidden first, flagged drift
+        { ...base, query: 'lookup cache', context: { stack: ['node'] } }, // forbidden first, not flagged
+        { ...base, query: 'python', context: withVersions }, // only the expected card matches
+      ]);
+      expect(report.byKind.wrong_scope).toMatchObject({
+        n: 3,
+        hit1: 1 / 3,
+        wrongScopeTop1Rate: 2 / 3,
+        wrongTop1FlaggedRate: 0.5,
+      });
+      db.close();
+    });
+
+    it('parseQueriesYaml names the query and the missing field for each new kind', () => {
+      expect(() => parseQueriesYaml('- query: "q1"\n  kind: superseded\n  expected: a\n')).toThrow(/index 0.*"replaced"/);
+      expect(() => parseQueriesYaml('- query: "q1"\n  kind: drift\n  expected: a\n')).toThrow(/index 0.*context\.versions/);
+      expect(() =>
+        parseQueriesYaml('- query: "q1"\n  kind: drift\n  expected: a\n  context: {stack: [node]}\n'),
+      ).toThrow(/context\.versions/);
+      expect(() => parseQueriesYaml('- query: "q1"\n  kind: wrong_scope\n  expected: a\n')).toThrow(/index 0.*"forbidden"/);
+      expect(() => parseQueriesYaml('- query: "q1"\n  kind: wrong_scope\n  expected: a\n  forbidden: []\n')).toThrow(/"forbidden"/);
+      expect(() => parseQueriesYaml('- query: "q1"\n  kind: stale\n  expected: a\n  replaced: b\n')).toThrow(/"replaced".*superseded/);
+      const ok = parseQueriesYaml(`
+- query: "q1"
+  kind: superseded
+  expected: a
+  replaced: b
+- query: "q2"
+  kind: stale
+  expected: a
+- query: "q3"
+  kind: drift
+  expected: a
+  context: {stack: [node], versions: {node: "3.1.0"}}
+- query: "q4"
+  kind: wrong_scope
+  expected: a
+  forbidden: [b]
+`);
+      expect(ok.map((q) => q.kind)).toEqual(['superseded', 'stale', 'drift', 'wrong_scope']);
+    });
+
+    it('findMissingExpected also checks the replaced id', async () => {
+      writeCards({ 'pattern-alpha': { title: 'Alpha' } });
+      const db = await buildFreshIndex(store);
+      expect(
+        findMissingExpected(db, [{ query: 'x', kind: 'superseded', expected: 'pattern-alpha', replaced: 'gone-1' }]),
+      ).toEqual(['gone-1']);
+      db.close();
+    });
+
+    it('formatReport prints visible, retrieved, flag acc and wrong@1 for the new kinds', () => {
+      const text = formatReport({
+        total: 4,
+        scored: 4,
+        hits: 0,
+        hitRatePercent: 0,
+        byKind: {},
+        byGroup: {
+          superseded: { kind: 'superseded', n: 1, hit1: 1, mrr5: 1, replacedVisibleRate: 0.25 },
+          stale: { kind: 'stale', n: 1, retrievedRate: 0.5, flagAccuracy: 0.75 },
+          wrong_scope: { kind: 'wrong_scope', n: 1, hit1: 0, wrongScopeTop1Rate: 1, wrongTop1FlaggedRate: 0.5 },
+        },
+        p50Ms: 0,
+        p95Ms: 0,
+        misses: [],
+      });
+      expect(text).toContain('visible=25.0%');
+      expect(text).toContain('retrieved=50.0% flag acc=75.0%');
+      expect(text).toContain('wrong@1=100.0% flagged@1=50.0%');
+    });
   });
 });

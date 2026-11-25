@@ -9,17 +9,36 @@ import { initializeSchema } from '../db/schema.js';
 import { reconcileIndex } from '../services/index-reconciler.js';
 import { searchCards, type SearchContext, type SearchFallback, type SearchRanking } from '../services/search-service.js';
 
-export type BenchmarkKind = 'known' | 'missing' | 'project_decision' | 'cross_project';
+export type BenchmarkKind =
+  | 'known'
+  | 'missing'
+  | 'project_decision'
+  | 'cross_project'
+  | 'superseded'
+  | 'stale'
+  | 'drift'
+  | 'wrong_scope';
 
-const BENCHMARK_KINDS: readonly BenchmarkKind[] = ['known', 'missing', 'project_decision', 'cross_project'];
+const BENCHMARK_KINDS: readonly BenchmarkKind[] = [
+  'known',
+  'missing',
+  'project_decision',
+  'cross_project',
+  'superseded',
+  'stale',
+  'drift',
+  'wrong_scope',
+];
 
 export interface BenchmarkQuery {
   query: string;
   /** Defaults to `known`. `missing` queries have no `expected`. */
   kind?: BenchmarkKind;
   expected?: string | string[];
-  /** Card ids that must not come back as top-1 (project_decision: wrong-project answers). */
+  /** Card ids that must not come back as top-1 (project_decision: wrong-project answers; wrong_scope: wrong-scope answers). */
   forbidden?: string[];
+  /** superseded only: the card `expected` replaced; it must not show up in the default-visibility top 5. */
+  replaced?: string;
   context?: SearchContext;
   /** Reporting label only (e.g. a synthetic query shape); defaults to the kind. */
   group?: string;
@@ -41,11 +60,23 @@ export interface KindReport {
   falseAnswerRate?: number;
   anyResultRate?: number;
   wrongProjectTop1Rate?: number;
+  /** superseded: share of queries where `replaced` is anywhere in the top 5, labelled or not (visibility). */
+  replacedVisibleRate?: number;
+  /** stale / drift: share of queries with `expected` in the top 5 (retrieval). */
+  retrievedRate?: number;
+  /** stale / drift: among the retrieved, share carrying flags.stale / flags.drift (flagging). */
+  flagAccuracy?: number;
+  /** wrong_scope: share whose top-1 is a `forbidden` id, flagged or not (ranking). */
+  wrongScopeTop1Rate?: number;
+  /** wrong_scope: among those wrong top-1s, share flagged drift (diagnostic only). */
+  wrongTop1FlaggedRate?: number;
 }
 
 export interface BenchmarkOptions {
   ranking?: SearchRanking;
   fallback?: SearchFallback;
+  /** Clock for the stale flag and trust decay; defaults to the real time. */
+  now?: Date;
 }
 
 export interface BenchmarkReport {
@@ -98,8 +129,27 @@ function validateEntry(item: unknown, index: number): BenchmarkQuery {
         `${where} is kind "project_decision" and requires a non-empty "forbidden" list (otherwise wrongProjectTop1Rate is always 0%)`,
       );
     }
+  } else if (kind === 'wrong_scope') {
+    if (!isStringList(v['forbidden'])) {
+      throw new Error(
+        `${where} is kind "wrong_scope" and requires a non-empty "forbidden" list (otherwise wrongScopeTop1Rate is always 0%)`,
+      );
+    }
   } else if (v['forbidden'] !== undefined) {
-    throw new Error(`${where} has "forbidden", which only applies to kind "project_decision"`);
+    throw new Error(`${where} has "forbidden", which only applies to kind "project_decision" or "wrong_scope"`);
+  }
+  if (kind === 'superseded') {
+    if (typeof v['replaced'] !== 'string' || v['replaced'] === '') {
+      throw new Error(`${where} is kind "superseded" and requires "replaced" (the card id that "expected" replaced)`);
+    }
+  } else if (v['replaced'] !== undefined) {
+    throw new Error(`${where} has "replaced", which only applies to kind "superseded"`);
+  }
+  if (kind === 'drift') {
+    const versions = (v['context'] as { versions?: unknown } | undefined)?.versions;
+    if (typeof versions !== 'object' || versions === null || Object.keys(versions).length === 0) {
+      throw new Error(`${where} is kind "drift" and requires "context.versions" (otherwise no card can be flagged drift)`);
+    }
   }
   return v as unknown as BenchmarkQuery;
 }
@@ -107,7 +157,7 @@ function validateEntry(item: unknown, index: number): BenchmarkQuery {
 export function parseQueriesYaml(raw: string): BenchmarkQuery[] {
   const parsed: unknown = parseYaml(raw);
   if (!Array.isArray(parsed)) {
-    throw new Error('queries.yaml must be a YAML list of {query, kind?, expected?, forbidden?, context?}');
+    throw new Error('queries.yaml must be a YAML list of {query, kind?, expected?, forbidden?, replaced?, context?}');
   }
   return parsed.map((item, i) => validateEntry(item, i));
 }
@@ -123,12 +173,12 @@ export async function buildFreshIndex(storePath: string): Promise<Database.Datab
   return db;
 }
 
-/** Expected and forbidden card ids that have no row in `cards` — de-duplicated, sorted. */
+/** Expected, forbidden and replaced card ids that have no row in `cards` — de-duplicated, sorted. */
 export function findMissingExpected(db: Database.Database, queries: BenchmarkQuery[]): string[] {
   const exists = db.prepare('SELECT 1 FROM cards WHERE id = ?');
   const missing = new Set<string>();
   for (const q of queries) {
-    for (const id of [...expectedIds(q), ...(q.forbidden ?? [])]) {
+    for (const id of [...expectedIds(q), ...(q.forbidden ?? []), ...(q.replaced ? [q.replaced] : [])]) {
       if (!exists.get(id)) missing.add(id);
     }
   }
@@ -225,7 +275,15 @@ interface Acc {
   falseAnswers: number;
   anyResult: number;
   wrongProject: number;
+  replacedVisible: number;
+  retrieved: number;
+  flagged: number;
+  wrongScope: number;
+  wrongFlagged: number;
 }
+
+/** A conditional rate; 0 when its condition never occurred (the unconditional rate beside it shows that). */
+const ratio = (part: number, whole: number): number => (whole === 0 ? 0 : part / whole);
 
 function finishAcc(a: Acc): KindReport & { kind: BenchmarkKind } {
   const r = (x: number): number => (a.n === 0 ? 0 : x / a.n);
@@ -235,6 +293,18 @@ function finishAcc(a: Acc): KindReport & { kind: BenchmarkKind } {
       return { ...base, falseAnswerRate: r(a.falseAnswers), anyResultRate: r(a.anyResult) };
     case 'project_decision':
       return { ...base, hit1: r(a.hit1), wrongProjectTop1Rate: r(a.wrongProject) };
+    case 'superseded':
+      return { ...base, hit1: r(a.hit1), mrr5: r(a.rr5), replacedVisibleRate: r(a.replacedVisible) };
+    case 'stale':
+    case 'drift':
+      return { ...base, retrievedRate: r(a.retrieved), flagAccuracy: ratio(a.flagged, a.retrieved) };
+    case 'wrong_scope':
+      return {
+        ...base,
+        hit1: r(a.hit1),
+        wrongScopeTop1Rate: r(a.wrongScope),
+        wrongTop1FlaggedRate: ratio(a.wrongFlagged, a.wrongScope),
+      };
     default:
       return { ...base, hit1: r(a.hit1), mrr5: r(a.rr5), recall5: r(a.recall5) };
   }
@@ -261,7 +331,21 @@ export function runBenchmark(
   const accFor = <K>(map: Map<K, Acc>, key: K, kind: BenchmarkKind): Acc => {
     let a = map.get(key);
     if (!a) {
-      a = { kind, n: 0, hit1: 0, rr5: 0, recall5: 0, falseAnswers: 0, anyResult: 0, wrongProject: 0 };
+      a = {
+        kind,
+        n: 0,
+        hit1: 0,
+        rr5: 0,
+        recall5: 0,
+        falseAnswers: 0,
+        anyResult: 0,
+        wrongProject: 0,
+        replacedVisible: 0,
+        retrieved: 0,
+        flagged: 0,
+        wrongScope: 0,
+        wrongFlagged: 0,
+      };
       map.set(key, a);
     }
     return a;
@@ -270,7 +354,7 @@ export function runBenchmark(
   for (const q of queries) {
     const kind = queryKind(q);
     const start = performance.now();
-    const results = searchCards(db, q.query, { context: q.context, ranking: opts.ranking, fallback: opts.fallback });
+    const results = searchCards(db, q.query, { context: q.context, ranking: opts.ranking, fallback: opts.fallback }, opts.now);
     durations.push(performance.now() - start);
 
     const accs = [accFor(byKindAcc, kind, kind), accFor(byGroupAcc, q.group ?? kind, kind)];
@@ -294,6 +378,9 @@ export function runBenchmark(
     const top5 = results.slice(0, 5).map((r) => r.id);
     const firstRank = top5.findIndex((id) => expected.includes(id));
     const hit1 = top1 !== null && expected.includes(top1);
+    const replacedVisible = kind === 'superseded' && q.replaced !== undefined && top5.includes(q.replaced);
+    const wrongScope = kind === 'wrong_scope' && top1 !== null && (q.forbidden ?? []).includes(top1);
+    const retrievedItem = firstRank === -1 ? undefined : results[firstRank];
     if (hit1) hits++;
     for (const a of accs) {
       if (hit1) a.hit1++;
@@ -302,6 +389,15 @@ export function runBenchmark(
         a.recall5++;
       }
       if (kind === 'project_decision' && top1 !== null && (q.forbidden ?? []).includes(top1)) a.wrongProject++;
+      if (replacedVisible) a.replacedVisible++;
+      if (wrongScope) {
+        a.wrongScope++;
+        if (top1Item?.flags.drift) a.wrongFlagged++;
+      }
+      if ((kind === 'stale' || kind === 'drift') && retrievedItem) {
+        a.retrieved++;
+        if (retrievedItem.flags[kind]) a.flagged++;
+      }
     }
     if (!hit1) misses.push({ query: q.query, kind, expected: expected.join('|'), actual_top1: top1 });
   }
@@ -336,6 +432,13 @@ function describeGroup(g: KindReport & { kind: BenchmarkKind }): string {
       return `falseAnswerRate=${pct(g.falseAnswerRate)} anyResultRate=${pct(g.anyResultRate)}`;
     case 'project_decision':
       return `hit@1=${pct(g.hit1)} wrongProjectTop1Rate=${pct(g.wrongProjectTop1Rate)}`;
+    case 'superseded':
+      return `visible=${pct(g.replacedVisibleRate)} hit@1=${pct(g.hit1)} mrr@5=${(g.mrr5 ?? 0).toFixed(3)}`;
+    case 'stale':
+    case 'drift':
+      return `retrieved=${pct(g.retrievedRate)} flag acc=${pct(g.flagAccuracy)}`;
+    case 'wrong_scope':
+      return `hit@1=${pct(g.hit1)} wrong@1=${pct(g.wrongScopeTop1Rate)} flagged@1=${pct(g.wrongTop1FlaggedRate)}`;
     default:
       return `hit@1=${pct(g.hit1)} mrr@5=${(g.mrr5 ?? 0).toFixed(3)} recall@5=${pct(g.recall5)}`;
   }
@@ -383,6 +486,13 @@ export function formatMatrix(rows: Array<{ label: string; report: BenchmarkRepor
         return `hit@1 ${pct(g.hit1)} wrongProj ${pct(g.wrongProjectTop1Rate)}`;
       case 'cross_project':
         return `hit@1 ${pct(g.hit1)} recall@5 ${pct(g.recall5)}`;
+      case 'superseded':
+        return `visible ${pct(g.replacedVisibleRate)} hit@1 ${pct(g.hit1)}`;
+      case 'stale':
+      case 'drift':
+        return `retrieved ${pct(g.retrievedRate)} flag acc ${pct(g.flagAccuracy)}`;
+      case 'wrong_scope':
+        return `hit@1 ${pct(g.hit1)} wrong@1 ${pct(g.wrongScopeTop1Rate)}`;
       default:
         return `hit@1 ${pct(g.hit1)}`;
     }

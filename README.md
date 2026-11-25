@@ -551,7 +551,7 @@ working), an `expected` list, and `forbidden` ids:
 
 ```yaml
 - query: "retry policy for payments"
-  kind: project_decision                      # known | missing | project_decision | cross_project
+  kind: project_decision                      # known | missing | project_decision | cross_project | superseded | stale | drift | wrong_scope
   expected: decision-payments-retry
   forbidden: [decision-billing-retry]         # top-1 here counts as a wrong-project answer
   context: { project: acme/payments-api, stack: [node] }
@@ -567,6 +567,42 @@ Per kind the report gives `n` plus: `known` / `cross_project` hit@1, MRR@5, reca
 `anyResultRate` (share returning at least one result); `project_decision` hit@1 and
 `wrongProjectTop1Rate` (share whose top-1 is in `forbidden`). To compare ranking modes before changing
 `SEARCH_RANKING`, look at `wrongProjectTop1Rate` (project_decision) and recall@5 (cross_project).
+
+Four more kinds score the failures around old, outdated and out-of-scope answers, each as a separate
+metric so you can tell *which* part failed (the default-visibility top 5 is what a caller sees):
+
+```yaml
+- query: "retry policy"
+  kind: superseded                            # a newer card replaced an older one
+  expected: decision-retry-v2
+  replaced: decision-retry-v1                 # required: the card `expected` replaced
+- query: "how do we invalidate the cache"
+  kind: stale                                 # expected card is old; it should come back flagged stale
+  expected: pattern-cache-invalidation
+- query: "api pagination"
+  kind: drift                                 # expected card's version range misses the caller's versions
+  expected: pattern-api-pagination-v2
+  context: { stack: [node], versions: { node: "3.1.0" } }   # `context.versions` is required
+- query: "lookup cache"
+  kind: wrong_scope                           # another scope's card must not rank first
+  expected: pattern-python-cache
+  forbidden: [pattern-node-lookup-cache]      # required, non-empty
+  context: { stack: [node] }
+```
+
+- `visible` (`replacedVisibleRate`, superseded): share of queries where `replaced` shows up anywhere in the
+  top 5, with or without a label. It is a visibility failure: a retired card should not be returned at all.
+  Superseded also reports hit@1 and MRR@5 on `expected`.
+- `retrieved` (`retrievedRate`, stale and drift): share of queries with `expected` in the top 5, which
+  isolates retrieval from flagging.
+- `flag acc` (`flagAccuracy`, stale and drift): among the retrieved cards, the share carrying
+  `flags.stale` (stale) or `flags.drift` (drift). It is 0 when nothing was retrieved.
+- `wrong@1` (`wrongScopeTop1Rate`, wrong_scope): share whose top-1 is a `forbidden` id, flagged or not. It is
+  a ranking failure. Wrong_scope also reports hit@1 and `wrongTop1FlaggedRate` (printed `flagged@1`), the
+  share of those wrong top-1s that carry `flags.drift`; it is a diagnostic, not a pass/fail rate.
+
+The text report prints these as `visible=`, `retrieved=`, `flag acc=` and `wrong@1=`, and `--matrix`
+shows them as `visible`, `retrieved`, `flag acc` and `wrong@1` cells.
 
 `--synthetic` skips `queries.yaml` and derives a suite from the store (verified + normal cards
 only): `title` (verbatim), `title_nl` (the first seven title words inside a question template), `sig_noisy` (a noisy pasted

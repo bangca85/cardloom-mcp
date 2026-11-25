@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Benchmark: four new query kinds, `superseded` (needs `replaced`), `stale`, `drift` (needs `context.versions`)
+  and `wrong_scope` (needs `forbidden`), each scored per failure type: `visible` (is the replaced card still
+  in the top 5), `retrieved` (is the expected card in the top 5), `flag acc` (is it flagged stale or drift)
+  and `wrong@1` (does a forbidden card rank first). See the README "Benchmark" section.
 - `get_card` (and the `knowledge://card/{id}` resource) now report a replacement: `replacement.pending` lists
   drafts that propose to replace the card (it is still the current answer), and `replacement.superseded_by`
   names the verified card that replaced it. The field is absent when neither applies.
