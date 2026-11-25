@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -119,6 +119,28 @@ describe('runUpgradeCheck', () => {
 
   it('refuses a tech the map lists without a version', () => {
     expect(() => runUpgradeCheck(db, MAP, ['postgres@17'])).toThrow(/postgres.*no version/);
+  });
+
+  it.each([['canary'], ['latest'], ['next'], ['rc']])('refuses --to next@%s, naming the value and the argument', (v) => {
+    insertCard(db, { id: 'c14', range: '>=14 <15' });
+    expect(() => runUpgradeCheck(db, MAP, [`next@${v}`])).toThrow(new RegExp(`"${v}" \\(--to next@${v}\\) is not a semver`));
+  });
+
+  it('refuses a map entry with a non-semver version, naming the map', () => {
+    expect(() => runUpgradeCheck(db, { stack: ['next@latest'] }, ['next@15.0.0'])).toThrow(/"latest" \(next in \.knowledge-map\.yaml\) is not a semver/);
+  });
+
+  it.each([['15'], ['15.0.0'], ['15.0.0-rc.1'], ['15.x']])('accepts the version or range %s', (v) => {
+    expect(() => runUpgradeCheck(db, MAP, [`next@${v}`])).not.toThrow();
+  });
+
+  it('leaves out cards whose version_range is empty or invalid (read as * by normalizeRange)', () => {
+    insertCard(db, { id: 'good', range: '>=14 <15' });
+    insertCard(db, { id: 'empty', range: '' });
+    insertCard(db, { id: 'junk', range: 'not a range' });
+    insertCard(db, { id: 'anyx', range: 'x' });
+    const [check] = runUpgradeCheck(db, MAP, ['next@15.0.0']);
+    expect(check).toMatchObject({ stopApplying: ['good'], startApplying: [], stillApplying: [] });
   });
 
   it('normalises case and spaces in the tech name', () => {
@@ -277,6 +299,38 @@ Body of ${title}.
     expect(unknown.exitCode).toBe(1);
     expect(unknown.stderr).toContain('rails');
     expect(fs.readdirSync(store)).toEqual(['cards']);
+  });
+
+  it('exits 1 with the message on stderr for a non-semver --to or map version', async () => {
+    fs.writeFileSync(path.join(cwd, '.knowledge-map.yaml'), 'stack:\n  - next@14.2.0\n');
+    for (const v of ['canary', 'latest']) {
+      const res = await runUpgradeCheckCommand(store, cwd, { targets: [`next@${v}`], json: false });
+      expect(res.exitCode).toBe(1);
+      expect(res.stdout).toBe('');
+      expect(res.stderr).toContain(`"${v}" (--to next@${v}) is not a semver`);
+    }
+    fs.writeFileSync(path.join(cwd, '.knowledge-map.yaml'), 'stack:\n  - next@latest\n');
+    const res = await runUpgradeCheckCommand(store, cwd, { targets: ['next@15.0.0'], json: false });
+    expect(res.exitCode).toBe(1);
+    expect(res.stderr).toContain('"latest" (next in .knowledge-map.yaml) is not a semver');
+  });
+
+  it('keeps stdout valid JSON and stderr quiet with empty/invalid card ranges in the store', async () => {
+    fs.writeFileSync(path.join(cwd, '.knowledge-map.yaml'), 'stack:\n  - next@14.2.0\n');
+    writeCard('pattern-old', 'Old routing rule', '>=14 <15');
+    writeCard('pattern-empty', 'Empty range', '');
+    writeCard('pattern-junk', 'Junk range', 'not a range');
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await runUpgradeCheckCommand(store, cwd, { targets: ['next@15.0.0'], json: true });
+      expect(res.exitCode).toBe(0);
+      const parsed = JSON.parse(res.stdout) as UpgradeCheck[];
+      expect(parsed[0].stopApplying).toEqual(['pattern-old']);
+      expect(parsed[0].stillApplying).toEqual([]);
+      expect(spy.mock.calls.filter((c) => String(c[0]).includes('facets-intersect'))).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('works when the store directory does not exist (nothing listed)', async () => {

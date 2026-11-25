@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
 import type Database from 'better-sqlite3';
+import { validRange } from 'semver';
 import { parse as parseYaml } from 'yaml';
 import { config } from '../config/env.js';
 import { initializeSchema } from '../db/schema.js';
@@ -67,6 +68,14 @@ export function runUpgradeCheck(db: Database.Database, map: { stack: string[] },
     if (to === undefined) {
       throw new UpgradeCheckError(`--to ${target} has no version: write it as ${tech}@<version>`);
     }
+    // normalizeRange (facets-intersect) turns a value semver rejects (latest, canary, rc) into "*", which would
+    // make every card apply: refuse such versions instead of printing a confidently wrong list.
+    if (validRange(from) === null) {
+      throw new UpgradeCheckError(`"${from}" (${tech} in ${MAP_FILE}) is not a semver version or range: write a number such as ${tech}@15.0.0`);
+    }
+    if (validRange(to) === null) {
+      throw new UpgradeCheckError(`"${to}" (--to ${target}) is not a semver version or range: write a number such as ${tech}@15.0.0`);
+    }
     return { tech, from, to };
   });
 
@@ -77,6 +86,9 @@ export function runUpgradeCheck(db: Database.Database, map: { stack: string[] },
   return resolved.map(({ tech, from, to }) => {
     const check: UpgradeCheck = { tech, from, to, stopApplying: [], startApplying: [], stillApplying: [] };
     for (const row of rows) {
+      // An empty or invalid range is read as "*" by normalizeRange: leave it out like a literal "*".
+      const normalized = validRange(row.version_range);
+      if (normalized === null || normalized === '*') continue;
       let stackTags: unknown;
       try {
         stackTags = JSON.parse(row.stack);
