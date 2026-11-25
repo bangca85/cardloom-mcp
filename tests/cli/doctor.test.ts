@@ -102,6 +102,141 @@ describe('runDoctor', () => {
   });
 });
 
+function cardFile(opts: {
+  title: string;
+  status: 'draft' | 'verified' | 'deprecated';
+  verifiedBy?: string;
+  method?: string;
+  deprecationReason?: string;
+}): string {
+  const lines = [
+    '---',
+    'type: pattern',
+    'scope: project',
+    'applies_to: [api]',
+    'stack: [node]',
+    'version_range: ">=1.0.0"',
+    'sensitivity: normal',
+    'source_commit: abc123',
+    'provenance: agent-observation',
+    `title: ${opts.title}`,
+    `status: ${opts.status}`,
+  ];
+  if (opts.verifiedBy) {
+    lines.push(
+      `verified_by: ${opts.verifiedBy}`,
+      `verification_method: "${opts.method}"`,
+      'last_verified: "2026-01-01T00:00:00Z"',
+    );
+  }
+  if (opts.status === 'deprecated') {
+    lines.push(
+      `deprecation_reason: "${opts.deprecationReason}"`,
+      'deprecated_at: "2026-02-01T00:00:00Z"',
+      'deprecated_by: reviewer',
+    );
+  }
+  lines.push('---', `Body of ${opts.title}.`, '');
+  return lines.join('\n');
+}
+
+const NOW = new Date('2026-11-25T00:00:00Z');
+const DAY_MS = 86_400_000;
+
+function writeAged(store: string, name: string, content: string, ageDays: number): void {
+  writeCard(store, name, content);
+  const when = new Date(NOW.getTime() - ageDays * DAY_MS);
+  fs.utimesSync(path.join(store, 'cards', name), when, when);
+}
+
+describe('runDoctor review stats', () => {
+  it('splits drafts, approvals, rejections and retired drafts', async () => {
+    writeAged(tmp, 'pattern-draft-new.md', cardFile({ title: 'Draft new', status: 'draft' }), 10);
+    writeAged(tmp, 'pattern-draft-old.md', cardFile({ title: 'Draft old', status: 'draft' }), 40);
+    writeAged(
+      tmp,
+      'pattern-a.md',
+      cardFile({ title: 'A', status: 'verified', verifiedBy: 'alice', method: 'chat-approval' }),
+      5,
+    );
+    writeAged(
+      tmp,
+      'pattern-b.md',
+      cardFile({
+        title: 'B',
+        status: 'verified',
+        verifiedBy: 'release-bot',
+        method: 'merged:acme/app@abc1234 (pr #1 merged)',
+      }),
+      5,
+    );
+    writeAged(
+      tmp,
+      'pattern-c.md',
+      cardFile({
+        title: 'C',
+        status: 'deprecated',
+        verifiedBy: 'alice',
+        method: 'chat-approval',
+        deprecationReason: 'outdated',
+      }),
+      5,
+    );
+    writeAged(
+      tmp,
+      'pattern-d.md',
+      cardFile({ title: 'D', status: 'deprecated', deprecationReason: 'rejected: duplicate of A' }),
+      5,
+    );
+    writeAged(
+      tmp,
+      'pattern-e.md',
+      cardFile({ title: 'E', status: 'deprecated', deprecationReason: 'superseded by A' }),
+      5,
+    );
+
+    const report = await runDoctor(tmp, path.join(tmp, 'index.db'), NOW);
+    expect(report.review).toEqual({
+      pendingDrafts: 2,
+      oldestDraftDays: 40,
+      approvedByHuman: 2,
+      approvedByMergePromotion: 1,
+      rejectedByHuman: 1,
+      retiredUnreviewed: 1,
+      humanApprovalRate: 2 / 3,
+    });
+
+    const text = formatDoctorReport(report);
+    expect(text).toContain('Review: 2 drafts waiting (oldest 40 days)');
+    expect(text).toContain(
+      'Approved by a human: 2 · by merge promotion: 1 · rejected: 1 · retired before review: 1',
+    );
+    expect(text).toContain('Human approval rate: 67% of drafts a human approved or rejected (2 of 3)');
+  });
+
+  it('reports no drafts and a null approval rate for an empty store', async () => {
+    const report = await runDoctor(tmp, path.join(tmp, 'index.db'), NOW);
+    expect(report.review).toEqual({
+      pendingDrafts: 0,
+      oldestDraftDays: null,
+      approvedByHuman: 0,
+      approvedByMergePromotion: 0,
+      rejectedByHuman: 0,
+      retiredUnreviewed: 0,
+      humanApprovalRate: null,
+    });
+    const text = formatDoctorReport(report);
+    expect(text).toContain('Review: 0 drafts waiting');
+    expect(text).not.toContain('Human approval rate');
+  });
+
+  it('uses the singular for one draft', async () => {
+    writeAged(tmp, 'pattern-draft-one.md', cardFile({ title: 'One', status: 'draft' }), 1);
+    const text = formatDoctorReport(await runDoctor(tmp, path.join(tmp, 'index.db'), NOW));
+    expect(text).toContain('Review: 1 draft waiting (oldest 1 day)');
+  });
+});
+
 describe('formatDoctorReport', () => {
   it('says a missing store is created on first server start', async () => {
     const text = formatDoctorReport(await runDoctor(path.join(tmp, 'missing-store'), path.join(tmp, 'index.db')));

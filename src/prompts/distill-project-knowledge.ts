@@ -71,6 +71,7 @@ Before saving a card, call \`search_knowledge\` for its topic **with \`include_d
 If an existing card (draft, verified, or deprecated) says something close:
 - Same lesson, refined/corrected → save the new one with \`supersedes: <old-id>\` instead of a standalone card.
 - Duplicate of an unapproved draft → don't save a second copy; surface the existing draft for approval instead.
+- A deprecated card whose deprecation_reason starts with "rejected:" was turned down by a human: compare your draft with it and do not save the same learning again unless you can say what is different.
 - Old **verified** card is clearly obsolete and nothing you're adding replaces it → do not silently deprecate it. Ask the human first, naming the specific card id and the concrete reason it's stale.
 
 ## Step 6 — Present for approval in batches

@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- Rejecting a draft now has a convention: start the deprecation reason with `rejected:`. The web viewer
+  shows a "Reject" button on drafts that does this for you. The `distill_project_knowledge` prompt tells
+  the agent not to save a learning a human already rejected.
+- `doctor` reports review stats: drafts waiting (and the age of the oldest), cards approved by a human,
+  by merge promotion, rejected, and retired before review, plus the human approval rate.
+
 ## 1.1.2
 
 - Listed in the official MCP Registry as `io.github.bangca85/cardloom-mcp`: `mcpName` in `package.json`

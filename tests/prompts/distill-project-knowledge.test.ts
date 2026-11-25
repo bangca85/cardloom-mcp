@@ -56,4 +56,12 @@ describe('buildDistillProjectKnowledgePrompt', () => {
     expect(text).toContain('not technical');
     expect(text).toContain('domain: product');
   });
+
+  it('tells the agent how to treat cards a human rejected', () => {
+    const result = buildDistillProjectKnowledgePrompt({});
+    const text = (result.messages[0]?.content as { text: string }).text;
+    expect(text).toContain(
+      'A deprecated card whose deprecation_reason starts with "rejected:" was turned down by a human: compare your draft with it and do not save the same learning again unless you can say what is different.',
+    );
+  });
 });

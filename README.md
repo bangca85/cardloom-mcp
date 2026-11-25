@@ -393,6 +393,14 @@ until it is verified. To promote or retire one:
 - **Reject / retire:** tell the agent to deprecate a card with a reason; it calls
   `update_card_status(id, "deprecate", reason)`. The file is kept (a retired card is never
   deleted) and disappears from default search, but stays readable via `get_card`.
+- **Reject a draft:** when the learning is wrong, a duplicate or not worth keeping, start the reason
+  with `rejected:` (for example `rejected: duplicate of pattern-foo`). The web viewer's "Reject" button
+  on a draft does this for you. `distill_project_knowledge` reads that prefix and will not save the same
+  learning again unless the new draft says what is different.
+
+`npm run doctor` shows how review is going: drafts waiting (and the age of the oldest), cards approved by
+a human, by merge promotion, rejected, and retired before review, and the human approval rate (of drafts a
+human approved or rejected; merge promotion and retired drafts are listed beside it, not in it).
 
 `deprecated` is terminal — there's no un-deprecate. To bring a retired idea back, save a new card
 with `supersedes` pointing at the old one and approve it.

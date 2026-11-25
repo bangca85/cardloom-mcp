@@ -178,7 +178,7 @@ export function createServer(db: Database.Database, knowledgeStorePath: string):
     {
       title: 'Update Card Status',
       description:
-        'Change a card\'s status. action="verify" (draft -> verified, only after a human reviewer approves it) or action="deprecate" (draft/verified -> deprecated, requires reason; the file is kept, never deleted — FR3). deprecated is terminal, there is no un-deprecate. Any other transition returns invalid_transition with the valid options.',
+        'Change a card\'s status. action="verify" (draft -> verified, only after a human reviewer approves it) or action="deprecate" (draft/verified -> deprecated, requires reason; the file is kept, never deleted — FR3). deprecated is terminal, there is no un-deprecate. When deprecating a draft because the learning is wrong, a duplicate or not worth keeping, start the reason with "rejected:". Any other transition returns invalid_transition with the valid options.',
       inputSchema: {
         id: z.string().describe('Card id'),
         // Loose string, not z.enum, for the same reason as report_card_usage's outcome field —

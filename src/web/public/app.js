@@ -115,6 +115,7 @@ const tabPanes = document.querySelectorAll('.tab-pane');
 
 const btnApprove = document.getElementById('btn-approve');
 const btnDeprecate = document.getElementById('btn-deprecate');
+const btnReject = document.getElementById('btn-reject');
 
 // SPA Tab Switching
 tabButtons.forEach(btn => {
@@ -135,6 +136,7 @@ tabButtons.forEach(btn => {
       renderGraph();
       btnApprove.classList.add('hidden');
       btnDeprecate.classList.add('hidden');
+      btnReject.classList.add('hidden');
     } else {
       if (activeCardId) {
         const activeCard = cardsList.find(c => c.id === activeCardId);
@@ -143,10 +145,12 @@ tabButtons.forEach(btn => {
         } else {
           btnApprove.classList.add('hidden');
           btnDeprecate.classList.add('hidden');
+          btnReject.classList.add('hidden');
         }
       } else {
         btnApprove.classList.add('hidden');
         btnDeprecate.classList.add('hidden');
+        btnReject.classList.add('hidden');
       }
     }
   });
@@ -357,13 +361,16 @@ function renderCardDetail(card) {
   if (card.status === 'draft') {
     btnApprove.classList.remove('hidden');
     btnDeprecate.classList.remove('hidden');
+    btnReject.classList.remove('hidden');
   } else if (card.status === 'verified') {
     btnApprove.classList.add('hidden');
     btnDeprecate.classList.remove('hidden');
+    btnReject.classList.add('hidden');
   } else {
     // Deprecated
     btnApprove.classList.add('hidden');
     btnDeprecate.classList.add('hidden');
+    btnReject.classList.add('hidden');
   }
 }
 
@@ -402,23 +409,24 @@ btnApprove.addEventListener('click', async () => {
   }
 });
 
-// Action: Deprecate Card
-btnDeprecate.addEventListener('click', async () => {
+// Action: Deprecate Card. Reject is the same call for a draft, with "rejected: " in front of the reason
+// so the review stats in `doctor` and the distill prompt can tell a turned-down draft from a retired one.
+async function deprecateActiveCard(button, promptText, reasonPrefix) {
   if (!activeCardId) return;
-  const reason = prompt('Please enter the deprecation reason (required):');
+  const reason = prompt(promptText);
   if (reason === null) return; // user cancelled
   if (reason.trim() === '') {
     showToast('Input Error', 'Deprecation reason cannot be empty.', 'error');
     return;
   }
 
-  btnDeprecate.disabled = true;
+  button.disabled = true;
 
   try {
     const res = await fetch(`/api/cards/${activeCardId}/deprecate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reason: reason.trim() })
+      body: JSON.stringify({ reason: reasonPrefix + reason.trim() })
     });
     const outcome = await res.json();
 
@@ -444,9 +452,14 @@ btnDeprecate.addEventListener('click', async () => {
   } catch (err) {
     showToast('System Error', 'Could not connect to the server.', 'error');
   } finally {
-    btnDeprecate.disabled = false;
+    button.disabled = false;
   }
-});
+}
+
+btnDeprecate.addEventListener('click', () =>
+  deprecateActiveCard(btnDeprecate, 'Please enter the deprecation reason (required):', ''));
+btnReject.addEventListener('click', () =>
+  deprecateActiveCard(btnReject, 'Why is this draft rejected? (required)', 'rejected: '));
 
 // Render Network Graph
 async function renderGraph() {
