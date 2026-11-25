@@ -268,8 +268,10 @@ that `search_knowledge` and `get_card` return, not internal objects, for these b
 
 - **Filtered by default.** A default search does not return draft, deprecated or restricted cards, and does
   not return a card that has been superseded.
-- **Labelled when requested.** With `include_drafts`, a draft is returned with `untrusted: true`, and
-  `get_card` labels the same draft `untrusted: true`.
+- **Labelled when requested.** With `include_drafts`, a draft is returned with `untrusted: true`; with
+  `include_deprecated`, a deprecated card is returned with `deprecated: true`; with `include_restricted`, a
+  restricted card is returned with `restricted: true`. `get_card` labels the same three cards the same way
+  (and returns the `deprecation_reason`).
 - **Flagged when old.** A card last verified more than `STALE_THRESHOLD_DAYS` ago carries `flags.stale: true`
   in search results (the test uses a card verified 400 days before a fixed date).
 - **Replacement reported.** `get_card` on a superseded card names the card that replaced it in
@@ -689,7 +691,7 @@ docker compose build && docker compose run --rm -i cardloom-mcp
 ## How is cardloom different from other agent memory tools?
 
 Memory tools such as mem0 and claude-mem let the agent write memories and read them back with no review step.
-cardloom adds one: agents only save drafts, a human approves them, and a default search returns only approved
+cardloom adds one: agents only save drafts, a human approves them by default, and a default search returns only approved
 cards. Cards are markdown files in a git repository you own, and search runs locally without an LLM call.
 Drafts, retired and restricted cards are filtered out unless you ask for them, and are labelled when returned.
 Old cards are flagged `stale`, and `get_card` reports when a card has been replaced.

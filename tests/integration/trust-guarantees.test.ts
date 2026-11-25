@@ -44,7 +44,14 @@ function searchJson(result: ToolResult): { results: SearchItem[] } {
 }
 
 function cardJson(result: ToolResult): {
-  card: { id: string; untrusted?: boolean; replacement?: { superseded_by?: string; pending: string[] } };
+  card: {
+    id: string;
+    untrusted?: boolean;
+    deprecated?: boolean;
+    deprecation_reason?: string;
+    restricted?: boolean;
+    replacement?: { superseded_by?: string; pending: string[] };
+  };
 } {
   return JSON.parse(result.content[0]!.text) as ReturnType<typeof cardJson>;
 }
@@ -165,6 +172,36 @@ describe('trust guarantees through the MCP tool responses', () => {
 
     expect(card.id).toBe(IDS.draft);
     expect(card.untrusted).toBe(true);
+  });
+
+  it('labels the deprecated card in search when deprecated cards are requested', () => {
+    const deprecated = search({ include_deprecated: true }).results.find((r) => r.id === IDS.deprecated);
+
+    expect(deprecated).toBeDefined();
+    expect(deprecated!.status).toBe('deprecated');
+    expect(deprecated!.deprecated).toBe(true);
+  });
+
+  it('labels the deprecated card in get_card with its reason', () => {
+    const { card } = cardJson(handleGetCard(db, { id: IDS.deprecated }));
+
+    expect(card.id).toBe(IDS.deprecated);
+    expect(card.deprecated).toBe(true);
+    expect(card.deprecation_reason).toBe('obsolete');
+  });
+
+  it('labels the restricted card in search when restricted cards are requested', () => {
+    const restricted = search({ include_restricted: true }).results.find((r) => r.id === IDS.restricted);
+
+    expect(restricted).toBeDefined();
+    expect(restricted!.restricted).toBe(true);
+  });
+
+  it('labels the restricted card in get_card', () => {
+    const { card } = cardJson(handleGetCard(db, { id: IDS.restricted }));
+
+    expect(card.id).toBe(IDS.restricted);
+    expect(card.restricted).toBe(true);
   });
 
   it('hides a superseded card by default and get_card names its replacement', () => {
