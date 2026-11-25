@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
 import { buildFreshIndex } from '../../src/cli/benchmark.js';
@@ -190,5 +190,37 @@ describe('read_all prompt', () => {
     expect(prompt).toContain('fixture/ledger-api');
     expect(prompt).toContain('postgres@16');
     expect(prompt).not.toContain('amount_minor');
+  });
+});
+
+describe('pinned clock', () => {
+  afterEach(() => vi.useRealTimers());
+
+  // Everything an agent can see in one fixed sequence of tool calls plus the read_all rendering.
+  function transcript(): string[] {
+    const search = createToolBox(db, opts({ context: ledger, mode: 'search_then_get' }));
+    return [
+      search.call('search_knowledge', { query: 'month-end close lock timeout' }).text,
+      search.call('get_card', { id: 'gotcha-ledger-month-end-close-lock-hang' }).text,
+      search.call('get_card', { id: 'gotcha-ledger-month-end-close-lock-hang', compact: true }).text,
+      ...renderEligibleCards(db, listEligibleCards(db, ledger)),
+    ];
+  }
+
+  it('gives byte-identical tool output under two different system clocks', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-12-01T00:00:00.000Z'));
+    const early = transcript();
+    vi.setSystemTime(new Date('2028-06-01T00:00:00.000Z')); // far past the 180-day stale threshold
+    const late = transcript();
+    expect(late).toEqual(early);
+    expect(late.join('')).not.toContain('"stale":true');
+  });
+
+  it('is the injected now, not the pinned one, that tests can change', () => {
+    const base = parse(createToolBox(db, opts({ context: ledger })).call('get_card', { id: 'gotcha-ledger-entry-out-of-order' }).text);
+    const later = parse(createToolBox(db, opts({ context: ledger, now: new Date('2028-06-01T00:00:00.000Z') })).call('get_card', { id: 'gotcha-ledger-entry-out-of-order' }).text);
+    expect(base.card.flags?.stale).toBeUndefined();
+    expect(later.card.flags?.stale).toBe(true);
   });
 });

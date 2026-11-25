@@ -11,6 +11,12 @@ import { renderCard } from '../src/services/card-service.js';
 import type { SearchContext } from '../src/services/search-service.js';
 import type { EvalMode, EvalTask, ToolBox, ToolBoxStats, ToolResult, ToolSpec } from './types.js';
 
+/**
+ * The one clock of the eval: search (trust decay, stale flag) and card rendering both use it, so fixture runs do not
+ * drift as real time passes. Only tests override it (`ToolBoxOptions.now`).
+ */
+export const EVAL_NOW = new Date('2026-11-25T00:00:00.000Z');
+
 /** Search results per call, in every tool mode. The brief's `top5` is the strictest; the other tool mode matches it. */
 export const SEARCH_LIMIT = 5;
 
@@ -30,20 +36,23 @@ export class ToolNotAllowedError extends Error {
   }
 }
 
+/** Not `.knowledge-map.yaml`: that name is git-ignored on purpose, so a fixture with it would never be committed. */
+export const REPO_CONTEXT_FILE = 'repo-context.yaml';
+
 export interface RepoContext {
   project: string;
   /** Stack tags without versions, e.g. `node`. */
   stack: string[];
   versions: Record<string, string>;
-  /** As written in the repo's .knowledge-map.yaml, e.g. `node@22`. */
+  /** As written in the repo's repo-context.yaml, e.g. `node@22`. */
   stackSpecs: string[];
 }
 
-/** Reads the `.knowledge-map.yaml` of the fixture repo whose `project` is `repoKey`. */
+/** Reads the `repo-context.yaml` (a `.knowledge-map.yaml` shape; that name is git-ignored) of the fixture repo whose `project` is `repoKey`. */
 export function loadRepoContext(repoKey: string, reposDir: string): RepoContext {
   for (const entry of fs.readdirSync(reposDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    const file = path.join(reposDir, entry.name, '.knowledge-map.yaml');
+    const file = path.join(reposDir, entry.name, REPO_CONTEXT_FILE);
     if (!fs.existsSync(file)) continue;
     const map = parse(fs.readFileSync(file, 'utf-8')) as { project?: string; stack?: string[] };
     if (map.project !== repoKey) continue;
@@ -91,6 +100,8 @@ export interface ToolBoxOptions {
   specs: ToolSpec[];
   /** What `get_card` does when the agent does not say: the full body, or `compact: true`. Default `full`. */
   getCardDefault?: 'full' | 'compact';
+  /** Defaults to `EVAL_NOW`; only tests pass another value. */
+  now?: Date;
 }
 
 const asRecord = (v: unknown): Record<string, unknown> => (typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
@@ -102,6 +113,7 @@ const validationError = (message: string): ToolResult => ({
 
 export function createToolBox(db: Database.Database, options: ToolBoxOptions): ToolBox {
   const allowed = TOOLS_BY_MODE[options.mode];
+  const now = options.now ?? EVAL_NOW;
   const specs = options.specs.filter((s) => allowed.includes(s.name));
   const stats: ToolBoxStats = { calls: 0, seenMatches: [], seenCards: [], getCardCalls: 0, refetchCalls: 0, refetchChars: 0 };
   const fetched = new Set<string>();
@@ -126,14 +138,14 @@ export function createToolBox(db: Database.Database, options: ToolBoxOptions): T
       if (name === 'search_knowledge') {
         if (typeof args.query !== 'string' || args.query.trim() === '') return validationError('query must be a non-empty string');
         // Same read permissions in every mode: default visibility, fixed limit. The context is filled in when the
-        // agent leaves it out, as a client that reads .knowledge-map.yaml would.
+        // agent leaves it out, as a client that reads the repo's context file would.
         const searchArgs: SearchKnowledgeArgs = {
           query: args.query,
           context: (typeof args.context === 'object' && args.context !== null ? args.context : searchContext) as SearchContext,
           limit: SEARCH_LIMIT,
         };
         try {
-          const text = handleSearchKnowledge(db, searchArgs, { telemetry: false }).content[0]!.text;
+          const text = handleSearchKnowledge(db, searchArgs, { telemetry: false, now }).content[0]!.text;
           const parsed = JSON.parse(text) as { results: Array<{ id: string; match: string }> };
           for (const r of parsed.results) {
             stats.seenMatches.push(r.match);
@@ -150,7 +162,7 @@ export function createToolBox(db: Database.Database, options: ToolBoxOptions): T
       const compact = typeof args.compact === 'boolean' ? args.compact : options.getCardDefault === 'compact';
       stats.getCardCalls += 1;
       try {
-        const text = handleGetCard(db, { id: args.id, compact }).content[0]!.text;
+        const text = handleGetCard(db, { id: args.id, compact }, { now }).content[0]!.text;
         if (fetched.has(args.id)) {
           stats.refetchCalls += 1;
           stats.refetchChars += text.length;
@@ -184,8 +196,8 @@ export function listEligibleCards(db: Database.Database, context: RepoContext): 
 }
 
 /** One JSON line per card, rendered by the same `renderCard` that serves `get_card` (full body). */
-export function renderEligibleCards(db: Database.Database, ids: string[]): string[] {
-  return ids.map((id) => JSON.stringify(renderCard(db, id, new Date())));
+export function renderEligibleCards(db: Database.Database, ids: string[], now: Date = EVAL_NOW): string[] {
+  return ids.map((id) => JSON.stringify(renderCard(db, id, now)));
 }
 
 export interface PromptInput {

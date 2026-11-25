@@ -1,0 +1,6 @@
+# Synthetic fixture repo context for the cardloom eval harness (same shape as a .knowledge-map.yaml). Not a real project.
+project: fixture/ledger-api
+stack:
+  - node@22
+  - postgres@16
+domain: backend

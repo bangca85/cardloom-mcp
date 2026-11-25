@@ -88,8 +88,10 @@ card shared by both repos.
 draw any conclusion from it. Note the draft and superseded tasks pin the default visibility (the hidden cards are not
 offered), so they check that the agent is not misled when the product does its job.
 
-Fixture dates: the cards are `last_verified: 2026-11-01`, so they are flagged `stale` from 2027-04-30 (180 days). Do not
-compare runs made on either side of that date.
+The clock is pinned: search (trust decay, `stale` flag) and card rendering use the fixed `EVAL_NOW` constant
+(`2026-11-25T00:00:00.000Z`, `eval/toolbox.ts`) instead of the system clock, so fixture runs do not drift as time passes.
+The fixture repos describe themselves in `repo-context.yaml` (a `.knowledge-map.yaml` shape, renamed because that file
+name is git-ignored and a fixture under it would never be committed).
 
 ## Reading the results
 

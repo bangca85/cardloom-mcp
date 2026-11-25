@@ -3,7 +3,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type Database from 'better-sqlite3';
 import { buildFreshIndex } from '../src/cli/benchmark.js';
-import { AnthropicRunner, MAX_TOOL_CALLS } from './anthropic-runner.js';
+import { AnthropicApiError, AnthropicRunner, MAX_TOOL_CALLS } from './anthropic-runner.js';
 import { scoreAnswer, summarize, type ModeSummary } from './score.js';
 import { loadTasks } from './tasks.js';
 import {
@@ -119,6 +119,14 @@ export interface SummaryRow {
   refetchChars: number;
 }
 
+/** An HTTP status that no later request can recover from (bad key, forbidden, unknown model): the run is aborted. */
+export const FATAL_API_STATUSES: readonly number[] = [401, 403, 404];
+
+export interface EvalAbort {
+  status: number;
+  message: string;
+}
+
 export interface EvalReport {
   schema: 1;
   startedAt: string;
@@ -126,6 +134,8 @@ export interface EvalReport {
   tasks: number;
   runsPerCell: number;
   compactPair: boolean;
+  /** Set when the run stopped early on a fatal API status; `results` then holds only what ran before. */
+  aborted?: EvalAbort;
   summaries: SummaryRow[];
   results: EvalResult[];
 }
@@ -142,12 +152,15 @@ export interface RunEvalInput {
   log?: (line: string) => void;
 }
 
-export async function runEval(input: RunEvalInput): Promise<Pick<EvalReport, 'results' | 'summaries'>> {
+export async function runEval(input: RunEvalInput): Promise<Pick<EvalReport, 'results' | 'summaries' | 'aborted'>> {
   const results: EvalResult[] = [];
+  let aborted: EvalAbort | undefined;
   const total = input.tasks.length * input.units.length * input.runs;
   for (const task of input.tasks) {
+    if (aborted) break;
     const context = input.contextFor(task.repo);
     for (const unit of input.units) {
+      if (aborted) break;
       for (let run = 1; run <= input.runs; run++) {
         const tools = createToolBox(input.db, { mode: unit.mode, context, specs: input.specs, getCardDefault: unit.variant === 'compact' ? 'compact' : 'full' });
         const cards = unit.mode === 'read_all' ? renderEligibleCards(input.db, listEligibleCards(input.db, context)) : undefined;
@@ -173,8 +186,12 @@ export async function runEval(input: RunEvalInput): Promise<Pick<EvalReport, 're
           });
         } catch (err) {
           results.push({ ...base, pass: false, failed: [], answer: '', tokens: 0, toolCalls: 0, latencyMs: 0, error: err instanceof Error ? err.message : String(err) });
+          if (err instanceof AnthropicApiError && FATAL_API_STATUSES.includes(err.status)) {
+            aborted = { status: err.status, message: err.message };
+          }
         }
         input.log?.(`[eval] ${results.length}/${total} ${task.id} ${unit.label} run ${run}: ${results[results.length - 1]!.error !== undefined ? 'ERROR' : results[results.length - 1]!.pass ? 'pass' : 'fail'}`);
+        if (aborted) break;
       }
     }
   }
@@ -192,7 +209,7 @@ export async function runEval(input: RunEvalInput): Promise<Pick<EvalReport, 're
       refetchChars: ok.reduce((n, r) => n + (r.refetchChars ?? 0), 0),
     };
   });
-  return { results, summaries };
+  return { results, summaries, ...(aborted && { aborted }) };
 }
 
 export function formatSummaries(rows: SummaryRow[], taskCount: number, runs: number, compactPair: boolean): string {
@@ -277,7 +294,7 @@ export async function main(argv: string[], env: Record<string, string | undefine
     };
     const runner = deps.runner ?? new AnthropicRunner({ apiKey: apiKey! });
     const usedModel = model ?? 'stub-model';
-    const { results, summaries } = await runEval({ tasks, db, specs, runner, model: usedModel, runs: parsed.runs, units, contextFor, log });
+    const { results, summaries, aborted } = await runEval({ tasks, db, specs, runner, model: usedModel, runs: parsed.runs, units, contextFor, log });
 
     const report: EvalReport = {
       schema: 1,
@@ -286,6 +303,7 @@ export async function main(argv: string[], env: Record<string, string | undefine
       tasks: tasks.length,
       runsPerCell: parsed.runs,
       compactPair: parsed.compactPair,
+      ...(aborted && { aborted }),
       summaries,
       results,
     };
@@ -294,6 +312,16 @@ export async function main(argv: string[], env: Record<string, string | undefine
     fs.writeFileSync(file, `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' });
     log(formatSummaries(summaries, tasks.length, parsed.runs, parsed.compactPair));
     log(`[eval] results written to ${file}`);
+    if (aborted) {
+      error(
+        `[eval] aborted after ${results.length} run(s): the API answered ${aborted.status} (${aborted.message}). Check ANTHROPIC_API_KEY and EVAL_MODEL. No further requests were made.`,
+      );
+      return 1;
+    }
+    if (results.length > 0 && results.every((r) => r.error !== undefined)) {
+      error(`[eval] every one of the ${results.length} runs ended in an error, so this result is unusable (see the errors in ${file}).`);
+      return 1;
+    }
     return 0;
   } finally {
     db.close();

@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { main, parseArgs, planLine, DEFAULT_OUT_DIR } from '../../eval/run-eval.js';
 import { StubRunner } from '../../eval/stub-runner.js';
+import { AnthropicRunner } from '../../eval/anthropic-runner.js';
 import type { EvalReport } from '../../eval/run-eval.js';
 import type { AgentRunner, RunInput } from '../../eval/types.js';
 
@@ -184,18 +186,72 @@ describe('StubRunner end to end', () => {
     expect(report.summaries[0]!.summary.wrongOnRelatedOnly).toBe(1);
   });
 
-  it('records a runner failure as an errored run, not a pass or a fail', async () => {
+  it('records a runner failure as an errored run, not a pass or a fail, and exits 1 when every run failed', async () => {
     const runner = new StubRunner({
       respond: () => {
         throw new Error('API 500');
       },
     });
+    const io = capture();
     const out = path.join(tmp, 'r');
-    expect(await main(['--confirm-spend', '--runs', '1', '--modes', 'top5', '--out', out], env, { ...capture(), runner })).toBe(0);
+    expect(await main(['--confirm-spend', '--runs', '1', '--modes', 'top5', '--out', out], env, { ...io, runner })).toBe(1);
+    expect(io.err.join('\n')).toMatch(/every one of the 8 runs ended in an error/);
+    // the results file is still written
     const report = JSON.parse(fs.readFileSync(path.join(out, fs.readdirSync(out)[0]!), 'utf-8')) as EvalReport;
     expect(report.results.every((r) => r.error === 'API 500')).toBe(true);
     expect(report.summaries[0]!.summary).toMatchObject({ runs: 0 });
     expect(report.summaries[0]!.errors).toBe(8);
+  });
+});
+
+describe('spend safety with the real runner (injected fetch)', () => {
+  const env = { ANTHROPIC_API_KEY: 'sk-test', EVAL_MODEL: 'test-model' };
+  const apiJson = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status });
+  const answer = (): Response => apiJson({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: 5, output_tokens: 5 } });
+  const err = (status: number): Response => apiJson({ type: 'error', error: { type: 'x', message: `status ${status}` } }, status);
+
+  function run(responder: (n: number) => Response) {
+    let requests = 0;
+    const fetchFn = (async () => responder(++requests)) as unknown as typeof fetch;
+    const runner = new AnthropicRunner({ apiKey: 'sk-test', fetch: fetchFn });
+    return { runner, requests: () => requests };
+  }
+
+  it.each([401, 403, 404])('aborts the whole run on the first HTTP %i: one request, exit 1, results file written', async (status) => {
+    const io = capture();
+    const out = path.join(tmp, 'r');
+    const { runner, requests } = run(() => err(status));
+    const code = await main(['--confirm-spend', '--runs', '3', '--out', out], env, { ...io, runner });
+    expect(code).toBe(1);
+    expect(requests()).toBe(1);
+    const message = io.err.join('\n');
+    expect(message).toContain(String(status));
+    expect(message).toContain('ANTHROPIC_API_KEY');
+    expect(message).toContain('EVAL_MODEL');
+    expect(message).not.toContain('sk-test');
+    const report = JSON.parse(fs.readFileSync(path.join(out, fs.readdirSync(out)[0]!), 'utf-8')) as EvalReport;
+    expect(report.aborted).toMatchObject({ status });
+    expect(report.results).toHaveLength(1);
+  });
+
+  it('exits 1 when every run of the matrix ended in a (non-fatal) error, and still writes the file', async () => {
+    const io = capture();
+    const out = path.join(tmp, 'r');
+    const { runner, requests } = run(() => err(500));
+    expect(await main(['--confirm-spend', '--runs', '1', '--modes', 'top5', '--out', out], env, { ...io, runner })).toBe(1);
+    expect(requests()).toBe(8); // a 500 is not fatal: every task was still tried
+    expect(fs.readdirSync(out)).toHaveLength(1);
+  });
+
+  it('exits 0 for a mixed matrix: some runs errored, some answered', async () => {
+    const io = capture();
+    const out = path.join(tmp, 'r');
+    const { runner } = run((n) => (n === 1 ? err(500) : answer()));
+    expect(await main(['--confirm-spend', '--runs', '1', '--modes', 'top5', '--out', out], env, { ...io, runner })).toBe(0);
+    const report = JSON.parse(fs.readFileSync(path.join(out, fs.readdirSync(out)[0]!), 'utf-8')) as EvalReport;
+    expect(report.summaries[0]!.errors).toBe(1);
+    expect(report.summaries[0]!.summary.runs).toBe(7);
+    expect(report.aborted).toBeUndefined();
   });
 });
 
@@ -238,6 +294,34 @@ describe('--compact-pair', () => {
     expect(full.refetchCalls).toBe(0);
     expect(compact.refetchCalls).toBe(0); // other tasks' bodies are under 600 chars, so nothing was cut
     expect(typeof compact.refetchChars).toBe('number');
+  });
+});
+
+describe('fixtures are committed', () => {
+  const root = path.resolve(import.meta.dirname, '../..');
+  const git = (args: string[]): string => execFileSync('git', args, { cwd: root, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  const inOwnWorkTree = ((): boolean => {
+    try {
+      return fs.realpathSync(git(['rev-parse', '--show-toplevel'])) === fs.realpathSync(root);
+    } catch {
+      return false; // not a git work tree (a tarball, an export): nothing to check
+    }
+  })();
+
+  const walk = (dir: string): string[] =>
+    fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+
+  it.skipIf(!inOwnWorkTree)('every file under eval/fixtures and eval/tasks is tracked by git, so a fresh clone has it (a .gitignore match would hide it)', () => {
+    const files = [...walk(path.join(root, 'eval/fixtures')), ...walk(path.join(root, 'eval/tasks'))].map((f) => path.relative(root, f));
+    expect(files.filter((f) => f.endsWith('repo-context.yaml')).length).toBe(2);
+    for (const f of files) {
+      expect(() => execFileSync('git', ['ls-files', '--error-unmatch', '--', f], { cwd: root, stdio: 'ignore' }), `${f} is not tracked (ignored by .gitignore?)`).not.toThrow();
+    }
+  });
+
+  it('keeps the fixture contexts under a name .gitignore does not match', () => {
+    expect(fs.existsSync(path.join(root, 'eval/fixtures/repos/ledger-api/repo-context.yaml'))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'eval/fixtures/repos/notify-worker/repo-context.yaml'))).toBe(true);
   });
 });
 
