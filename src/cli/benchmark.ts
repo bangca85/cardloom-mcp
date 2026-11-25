@@ -8,6 +8,8 @@ import { config } from '../config/env.js';
 import { initializeSchema } from '../db/schema.js';
 import { reconcileIndex } from '../services/index-reconciler.js';
 import { searchCards, type SearchContext, type SearchFallback, type SearchRanking } from '../services/search-service.js';
+import { handleSearchKnowledge } from '../tools/search-knowledge.js';
+import { estimateToolJsonTokens } from '../utils/token-estimate.js';
 
 export type BenchmarkKind =
   | 'known'
@@ -57,6 +59,8 @@ export interface KindReport {
   hit1?: number;
   mrr5?: number;
   recall5?: number;
+  /** Share of queries with `expected` in the top 10. Only set for runs with `limit` >= 10. */
+  recall10?: number;
   falseAnswerRate?: number;
   anyResultRate?: number;
   wrongProjectTop1Rate?: number;
@@ -77,6 +81,8 @@ export interface BenchmarkOptions {
   fallback?: SearchFallback;
   /** Clock for the stale flag and trust decay; defaults to the real time. */
   now?: Date;
+  /** `search_knowledge`'s `limit`; when unset the search-service default applies and `recall10` is not reported. */
+  limit?: number;
 }
 
 export interface BenchmarkReport {
@@ -91,6 +97,8 @@ export interface BenchmarkReport {
   byGroup: Record<string, KindReport & { kind: BenchmarkKind }>;
   p50Ms: number;
   p95Ms: number;
+  /** Estimated tokens of `handleSearchKnowledge`'s serialised JSON per query (chars / 4), not a tokenizer count. */
+  estimatedResponseTokens: { mean: number; p95: number };
   misses: BenchmarkMiss[];
 }
 
@@ -272,6 +280,7 @@ interface Acc {
   hit1: number;
   rr5: number;
   recall5: number;
+  recall10: number;
   falseAnswers: number;
   anyResult: number;
   wrongProject: number;
@@ -282,10 +291,35 @@ interface Acc {
   wrongFlagged: number;
 }
 
+function newAcc(kind: BenchmarkKind): Acc {
+  return {
+    kind,
+    n: 0,
+    hit1: 0,
+    rr5: 0,
+    recall5: 0,
+    recall10: 0,
+    falseAnswers: 0,
+    anyResult: 0,
+    wrongProject: 0,
+    replacedVisible: 0,
+    retrieved: 0,
+    flagged: 0,
+    wrongScope: 0,
+    wrongFlagged: 0,
+  };
+}
+
+/** Compile-time exhaustiveness check for the per-kind switches: a new BenchmarkKind fails the build here. */
+function assertNever(value: never): never {
+  throw new Error(`unhandled benchmark kind: ${String(value)}`);
+}
+
 /** A conditional rate; 0 when its condition never occurred (the unconditional rate beside it shows that). */
 const ratio = (part: number, whole: number): number => (whole === 0 ? 0 : part / whole);
 
-function finishAcc(a: Acc): KindReport & { kind: BenchmarkKind } {
+/** `withRecall10`: the run's limit was >= 10, so top-10 recall is meaningful (known and cross_project only). */
+function finishAcc(a: Acc, withRecall10: boolean): KindReport & { kind: BenchmarkKind } {
   const r = (x: number): number => (a.n === 0 ? 0 : x / a.n);
   const base = { kind: a.kind, n: a.n };
   switch (a.kind) {
@@ -305,8 +339,17 @@ function finishAcc(a: Acc): KindReport & { kind: BenchmarkKind } {
         wrongScopeTop1Rate: r(a.wrongScope),
         wrongTop1FlaggedRate: ratio(a.wrongFlagged, a.wrongScope),
       };
+    case 'known':
+    case 'cross_project':
+      return {
+        ...base,
+        hit1: r(a.hit1),
+        mrr5: r(a.rr5),
+        recall5: r(a.recall5),
+        ...(withRecall10 && { recall10: r(a.recall10) }),
+      };
     default:
-      return { ...base, hit1: r(a.hit1), mrr5: r(a.rr5), recall5: r(a.recall5) };
+      return assertNever(a.kind);
   }
 }
 
@@ -322,6 +365,8 @@ export function runBenchmark(
   opts: BenchmarkOptions = {},
 ): BenchmarkReport {
   const durations: number[] = [];
+  const responseTokens: number[] = [];
+  const withRecall10 = opts.limit !== undefined && opts.limit >= 10;
   const misses: BenchmarkMiss[] = [];
   const byKindAcc = new Map<BenchmarkKind, Acc>();
   const byGroupAcc = new Map<string, Acc>();
@@ -331,21 +376,7 @@ export function runBenchmark(
   const accFor = <K>(map: Map<K, Acc>, key: K, kind: BenchmarkKind): Acc => {
     let a = map.get(key);
     if (!a) {
-      a = {
-        kind,
-        n: 0,
-        hit1: 0,
-        rr5: 0,
-        recall5: 0,
-        falseAnswers: 0,
-        anyResult: 0,
-        wrongProject: 0,
-        replacedVisible: 0,
-        retrieved: 0,
-        flagged: 0,
-        wrongScope: 0,
-        wrongFlagged: 0,
-      };
+      a = newAcc(kind);
       map.set(key, a);
     }
     return a;
@@ -354,8 +385,20 @@ export function runBenchmark(
   for (const q of queries) {
     const kind = queryKind(q);
     const start = performance.now();
-    const results = searchCards(db, q.query, { context: q.context, ranking: opts.ranking, fallback: opts.fallback }, opts.now);
+    const results = searchCards(
+      db,
+      q.query,
+      { context: q.context, ranking: opts.ranking, fallback: opts.fallback, limit: opts.limit },
+      opts.now,
+    );
     durations.push(performance.now() - start);
+    // The size the agent actually receives: the tool's own serialised JSON, not the searchCards items.
+    const toolResponse = handleSearchKnowledge(
+      db,
+      { query: q.query, context: q.context, limit: opts.limit },
+      { ranking: opts.ranking, fallback: opts.fallback },
+    );
+    responseTokens.push(estimateToolJsonTokens(toolResponse.content[0]!.text));
 
     const accs = [accFor(byKindAcc, kind, kind), accFor(byGroupAcc, q.group ?? kind, kind)];
     for (const a of accs) a.n++;
@@ -377,6 +420,7 @@ export function runBenchmark(
     scored++;
     const top5 = results.slice(0, 5).map((r) => r.id);
     const firstRank = top5.findIndex((id) => expected.includes(id));
+    const inTop10 = results.slice(0, 10).some((r) => expected.includes(r.id));
     const hit1 = top1 !== null && expected.includes(top1);
     const replacedVisible = kind === 'superseded' && q.replaced !== undefined && top5.includes(q.replaced);
     const wrongScope = kind === 'wrong_scope' && top1 !== null && (q.forbidden ?? []).includes(top1);
@@ -388,6 +432,7 @@ export function runBenchmark(
         a.rr5 += 1 / (firstRank + 1);
         a.recall5++;
       }
+      if (inTop10) a.recall10++;
       if (kind === 'project_decision' && top1 !== null && (q.forbidden ?? []).includes(top1)) a.wrongProject++;
       if (replacedVisible) a.replacedVisible++;
       if (wrongScope) {
@@ -405,11 +450,11 @@ export function runBenchmark(
   const sorted = [...durations].sort((a, b) => a - b);
   const byKind: Partial<Record<BenchmarkKind, KindReport>> = {};
   for (const [kind, a] of byKindAcc) {
-    const { kind: _k, ...rest } = finishAcc(a);
+    const { kind: _k, ...rest } = finishAcc(a, withRecall10);
     byKind[kind] = rest;
   }
   const byGroup: BenchmarkReport['byGroup'] = {};
-  for (const [group, a] of byGroupAcc) byGroup[group] = finishAcc(a);
+  for (const [group, a] of byGroupAcc) byGroup[group] = finishAcc(a, withRecall10);
 
   return {
     total: queries.length,
@@ -420,6 +465,10 @@ export function runBenchmark(
     byGroup,
     p50Ms: percentile(sorted, 50),
     p95Ms: percentile(sorted, 95),
+    estimatedResponseTokens: {
+      mean: responseTokens.length === 0 ? 0 : responseTokens.reduce((sum, t) => sum + t, 0) / responseTokens.length,
+      p95: percentile([...responseTokens].sort((x, y) => x - y), 95),
+    },
     misses,
   };
 }
@@ -439,8 +488,13 @@ function describeGroup(g: KindReport & { kind: BenchmarkKind }): string {
       return `retrieved=${pct(g.retrievedRate)} flag acc=${pct(g.flagAccuracy)}`;
     case 'wrong_scope':
       return `hit@1=${pct(g.hit1)} wrong@1=${pct(g.wrongScopeTop1Rate)} flagged@1=${pct(g.wrongTop1FlaggedRate)}`;
+    case 'known':
+    case 'cross_project':
+      return `hit@1=${pct(g.hit1)} mrr@5=${(g.mrr5 ?? 0).toFixed(3)} recall@5=${pct(g.recall5)}${
+        g.recall10 === undefined ? '' : ` recall@10=${pct(g.recall10)}`
+      }`;
     default:
-      return `hit@1=${pct(g.hit1)} mrr@5=${(g.mrr5 ?? 0).toFixed(3)} recall@5=${pct(g.recall5)}`;
+      return assertNever(g.kind);
   }
 }
 
@@ -452,6 +506,9 @@ export function formatReport(report: BenchmarkReport): string {
     lines.push(`[benchmark] ${name} (${g.kind}, n=${g.n}): ${describeGroup(g)}`);
   }
   lines.push(`[benchmark] latency p50=${report.p50Ms.toFixed(2)}ms p95=${report.p95Ms.toFixed(2)}ms`);
+  lines.push(
+    `[benchmark] estimated response tokens mean=${report.estimatedResponseTokens.mean.toFixed(0)} p95=${report.estimatedResponseTokens.p95} (tool JSON chars / 4)`,
+  );
 
   if (report.misses.length > 0) {
     lines.push('[benchmark] misses:');
@@ -493,8 +550,10 @@ export function formatMatrix(rows: Array<{ label: string; report: BenchmarkRepor
         return `retrieved ${pct(g.retrievedRate)} flag acc ${pct(g.flagAccuracy)}`;
       case 'wrong_scope':
         return `hit@1 ${pct(g.hit1)} wrong@1 ${pct(g.wrongScopeTop1Rate)}`;
-      default:
+      case 'known':
         return `hit@1 ${pct(g.hit1)}`;
+      default:
+        return assertNever(g.kind);
     }
   };
   const table: string[][] = [
@@ -505,14 +564,131 @@ export function formatMatrix(rows: Array<{ label: string; report: BenchmarkRepor
       `${report.p50Ms.toFixed(2)}/${report.p95Ms.toFixed(2)}`,
     ]),
   ];
+  return renderTable(table);
+}
+
+function renderTable(table: string[][]): string {
   const widths = table[0]!.map((_, c) => Math.max(...table.map((r) => r[c]!.length)));
   return table.map((r) => '| ' + r.map((v, c) => v.padEnd(widths[c]!)).join(' | ') + ' |').join('\n');
+}
+
+export const COMPARE_LIMIT_SMALL = 5;
+export const COMPARE_LIMIT_LARGE = 10;
+export const COMPARE_RANKINGS: readonly SearchRanking[] = ['baseline', 'x', 'y'];
+
+export interface LimitComparison {
+  at5: BenchmarkReport;
+  at10: BenchmarkReport;
+}
+
+/**
+ * Two real runs, one per limit, never "run 10 and cut to 5": with the tiered fallback `limit` decides whether the
+ * OR tier runs at all (`andRows.length >= limit`), so the same query can return different sets at 5 and at 10.
+ */
+export function compareLimits(
+  db: Parameters<typeof searchCards>[0],
+  queries: BenchmarkQuery[],
+  opts: Omit<BenchmarkOptions, 'limit'> = {},
+): LimitComparison {
+  return {
+    at5: runBenchmark(db, queries, { ...opts, limit: COMPARE_LIMIT_SMALL }),
+    at10: runBenchmark(db, queries, { ...opts, limit: COMPARE_LIMIT_LARGE }),
+  };
+}
+
+export function compareLimitsByRanking(
+  db: Parameters<typeof searchCards>[0],
+  queries: BenchmarkQuery[],
+  opts: Omit<BenchmarkOptions, 'limit' | 'ranking'> = {},
+): Record<'baseline' | 'x' | 'y', LimitComparison> {
+  return {
+    baseline: compareLimits(db, queries, { ...opts, ranking: 'baseline' }),
+    x: compareLimits(db, queries, { ...opts, ranking: 'x' }),
+    y: compareLimits(db, queries, { ...opts, ranking: 'y' }),
+  };
+}
+
+/** The metric that matters for a kind besides recall; `-` for kinds whose headline is already in a column. */
+function kindMetric(kind: BenchmarkKind, g: KindReport): string {
+  switch (kind) {
+    case 'missing':
+      return `false answer ${pct(g.falseAnswerRate)}`;
+    case 'project_decision':
+      return `wrongProj ${pct(g.wrongProjectTop1Rate)}`;
+    case 'superseded':
+      return `visible ${pct(g.replacedVisibleRate)}`;
+    case 'stale':
+    case 'drift':
+      return `retrieved ${pct(g.retrievedRate)} flag acc ${pct(g.flagAccuracy)}`;
+    case 'wrong_scope':
+      return `wrong@1 ${pct(g.wrongScopeTop1Rate)}`;
+    case 'known':
+    case 'cross_project':
+      return '-';
+    default:
+      return assertNever(kind);
+  }
+}
+
+/** One table per ranking: recall per kind at limit 5 and limit 10, then the estimated response size of both runs. */
+export function formatLimitComparison(byRanking: Record<string, LimitComparison>): string {
+  const blocks: string[] = [];
+  for (const [ranking, { at5, at10 }] of Object.entries(byRanking)) {
+    const table: string[][] = [
+      [
+        'kind',
+        'n',
+        'recall@5 (limit 5)',
+        'recall@5 (limit 10)',
+        'recall@10 (limit 10)',
+        'hit@1 (limit 5)',
+        'hit@1 (limit 10)',
+        'kind metric (limit 5 / limit 10)',
+      ],
+    ];
+    for (const [kind, k5] of Object.entries(at5.byKind)) {
+      const k10 = at10.byKind[kind as BenchmarkKind];
+      table.push([
+        kind,
+        String(k5.n),
+        pct(k5.recall5),
+        pct(k10?.recall5),
+        pct(k10?.recall10),
+        pct(k5.hit1),
+        pct(k10?.hit1),
+        `${kindMetric(kind as BenchmarkKind, k5)} / ${k10 ? kindMetric(kind as BenchmarkKind, k10) : '-'}`,
+      ]);
+    }
+    const tokens = (r: BenchmarkReport): string =>
+      `mean=${r.estimatedResponseTokens.mean.toFixed(0)} p95=${r.estimatedResponseTokens.p95}`;
+    const lines = [`[benchmark] ranking ${ranking}`, renderTable(table)];
+    lines.push(
+      `[benchmark] estimated response tokens (tool JSON chars / 4): limit 5 ${tokens(at5)}; limit 10 ${tokens(at10)}`,
+    );
+    blocks.push(lines.join('\n'));
+  }
+  return blocks.join('\n\n');
+}
+
+function parseLimitFlag(argv: string[]): number | undefined {
+  const at = argv.indexOf('--limit');
+  if (at === -1) return undefined;
+  const raw = argv[at + 1];
+  if (raw === undefined || !/^[1-9]\d*$/.test(raw)) {
+    throw new Error(`--limit needs a positive integer, got ${raw === undefined ? 'nothing' : `"${raw}"`}`);
+  }
+  return Number(raw);
 }
 
 /** This is a standalone CLI, not the MCP server process — stdout is free to use (AD-12 only restricts the server). */
 export async function runBenchmarkCli(argv: string[] = process.argv.slice(2)): Promise<void> {
   const synthetic = argv.includes('--synthetic');
   const matrix = argv.includes('--matrix');
+  const compare = argv.includes('--compare-limits');
+  const limit = parseLimitFlag(argv);
+  if (compare && limit !== undefined) {
+    throw new Error('--compare-limits runs limit 5 and limit 10 itself; do not combine it with --limit');
+  }
   const queriesPath = path.join(config.knowledgeStorePath, 'benchmark', 'queries.yaml');
 
   if (!synthetic && !fs.existsSync(queriesPath)) {
@@ -547,14 +723,16 @@ export async function runBenchmarkCli(argv: string[] = process.argv.slice(2)): P
     console.log(`[benchmark] corpus cards=${fp.cards} verified=${fp.verified} sha256=${fp.sha256}`);
     console.log(`[benchmark] queries=${queries.length}${synthetic ? ' (synthetic)' : ''}`);
 
-    if (matrix) {
+    if (compare) {
+      console.log(formatLimitComparison(compareLimitsByRanking(db, queries)));
+    } else if (matrix) {
       const rows = MATRIX_CONFIGS.map((c) => ({
         label: `${c.ranking}/${c.fallback}`,
-        report: runBenchmark(db, queries, c),
+        report: runBenchmark(db, queries, { ...c, limit }),
       }));
       console.log(formatMatrix(rows));
     } else {
-      console.log(formatReport(runBenchmark(db, queries)));
+      console.log(formatReport(runBenchmark(db, queries, { limit })));
     }
   } finally {
     db.close();

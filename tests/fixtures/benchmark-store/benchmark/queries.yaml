@@ -1,0 +1,69 @@
+# Synthetic benchmark for the fixture store (no real data). `group: round1` is the case where the
+# limit decides whether the OR tier runs: five other/app cards match every term of the query
+# (AND tier), one acme/app card matches only some terms (OR tier).
+- query: "webhook retry backoff"
+  kind: known
+  group: round1
+  expected: decision-webhook-retry-limit-acme
+  context: { project: acme/app }
+
+# ---- known
+- query: "invalidate cache entries inside the write transaction"
+  expected: pattern-cache-invalidation-write
+  context: { project: acme/app }
+- query: "connection pool exhaustion slow queries"
+  expected: gotcha-connection-pool-exhaustion
+  context: { project: acme/app }
+- query: "ECONNPOOL timeout acquiring connection"
+  expected: gotcha-connection-pool-exhaustion
+- query: "cursor pagination stable unique ordering"
+  expected: pattern-cursor-pagination-ordering
+- query: "missing idempotency key duplicate charge"
+  expected: gotcha-idempotency-key-duplicate-charge
+  context: { project: acme/app }
+- query: "graceful shutdown drains in-flight requests"
+  expected: playbook-graceful-shutdown-drain
+- query: "table rename migration exclusive lock"
+  expected: gotcha-migration-lock-table-rename
+- query: "JWT expired clock skew"
+  expected: gotcha-jwt-clock-skew-expired
+- query: "stream large csv exports instead of buffering"
+  expected: pattern-csv-export-memory-streaming
+- query: "websocket reconnect jitter"
+  expected: pattern-websocket-reconnect-jitter
+- query: "remove stale feature flags after rollout"
+  expected: playbook-feature-flag-stale-cleanup
+  context: { project: acme/app }
+- query: "cron daylight saving skip repeat"
+  expected: gotcha-timezone-dst-cron
+- query: "presigned upload url expires slow upload"
+  expected: gotcha-presigned-url-expiry
+- query: "token bucket rate limit burst"
+  expected: pattern-rate-limit-token-bucket
+- query: "redact secrets logged request headers"
+  expected: playbook-log-redaction-headers
+- query: "dns negative caching outage"
+  expected: gotcha-dns-negative-cache-ttl
+- query: "poison messages dead letter queue"
+  expected: pattern-queue-poison-message-dead-letter
+
+# ---- project_decision
+- query: "connection pool timeout"
+  kind: project_decision
+  expected: gotcha-connection-pool-exhaustion
+  forbidden: [playbook-graceful-shutdown-drain]
+  context: { project: acme/app }
+
+# ---- missing
+- query: "quantum flux capacitor calibration"
+  kind: missing
+- query: "kubernetes operator reconcile loop"
+  kind: missing
+- query: "zqxv7000 error"
+  kind: missing
+- query: "gradient descent learning rate schedule"
+  kind: missing
+- query: "pdf watermark rendering"
+  kind: missing
+- query: "zqxv7013 error"
+  kind: missing

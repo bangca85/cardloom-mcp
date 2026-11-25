@@ -1,9 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import {
   buildFreshIndex,
+  compareLimits,
+  compareLimitsByRanking,
+  formatLimitComparison,
+  runBenchmarkCli,
   findMissingExpected,
   corpusFingerprint,
   findInvisibleExpected,
@@ -12,6 +17,15 @@ import {
   runBenchmark,
   syntheticQueries,
 } from '../../src/cli/benchmark.js';
+import { handleSearchKnowledge } from '../../src/tools/search-knowledge.js';
+
+// A pass-through spy so one test can change what the tool serialises; every other test sees the real handler.
+vi.mock('../../src/tools/search-knowledge.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/tools/search-knowledge.js')>();
+  return { ...actual, handleSearchKnowledge: vi.fn(actual.handleSearchKnowledge) };
+});
+
+const FIXTURE_STORE = fileURLToPath(new URL('../fixtures/benchmark-store', import.meta.url));
 
 function card(type: string, title: string): string {
   return `---
@@ -489,11 +503,149 @@ describe('benchmark v2', () => {
         },
         p50Ms: 0,
         p95Ms: 0,
+        estimatedResponseTokens: { mean: 0, p95: 0 },
         misses: [],
       });
       expect(text).toContain('visible=25.0%');
       expect(text).toContain('retrieved=50.0% flag acc=75.0%');
       expect(text).toContain('wrong@1=100.0% flagged@1=50.0%');
+    });
+  });
+});
+
+describe('compare limits on the committed fixture store', () => {
+  let db: Awaited<ReturnType<typeof buildFreshIndex>>;
+  let queries: ReturnType<typeof parseQueriesYaml>;
+  const round1 = (): typeof queries => queries.filter((q) => q.group === 'round1');
+
+  beforeEach(async () => {
+    db = await buildFreshIndex(FIXTURE_STORE);
+    queries = parseQueriesYaml(fs.readFileSync(path.join(FIXTURE_STORE, 'benchmark', 'queries.yaml'), 'utf-8'));
+  });
+
+  afterEach(async () => {
+    db.close();
+    const actual = await vi.importActual<typeof import('../../src/tools/search-knowledge.js')>('../../src/tools/search-knowledge.js');
+    vi.mocked(handleSearchKnowledge).mockImplementation(actual.handleSearchKnowledge);
+    vi.mocked(handleSearchKnowledge).mockClear();
+  });
+
+  it('the fixture is self-consistent: every expected id exists and is visible by default', () => {
+    expect(queries.length).toBeGreaterThanOrEqual(20);
+    expect(findMissingExpected(db, queries)).toEqual([]);
+    expect(findInvisibleExpected(db, queries)).toEqual([]);
+  });
+
+  it('ranking x with the caller project: limit 10 puts the OR-tier acme/app card first, limit 5 never returns it', () => {
+    const { at5, at10 } = compareLimits(db, round1(), { ranking: 'x', fallback: 'tiered' });
+    expect(at10.byKind.known).toMatchObject({ n: 1, hit1: 1, recall5: 1, recall10: 1 });
+    expect(at5.byKind.known).toMatchObject({ n: 1, hit1: 0, recall5: 0 });
+    expect(at5.byKind.known?.recall10).toBeUndefined();
+    expect(at5.misses).toEqual([
+      expect.objectContaining({ query: 'webhook retry backoff', expected: 'decision-webhook-retry-limit-acme' }),
+    ]);
+    expect(at5.misses[0]!.actual_top1).toMatch(/^pattern-webhook-retry-backoff-/);
+  });
+
+  it('runs the search twice, once per limit, through handleSearchKnowledge', () => {
+    compareLimits(db, round1(), { ranking: 'x', fallback: 'tiered' });
+    const limits = vi.mocked(handleSearchKnowledge).mock.calls.map(([, args]) => args.limit);
+    expect(limits).toEqual([5, 10]);
+  });
+
+  it('recall10 is reported only for runs with limit >= 10', () => {
+    const { at5, at10 } = compareLimits(db, queries, { ranking: 'baseline' });
+    expect(at5.byKind.known?.recall10).toBeUndefined();
+    expect(at10.byKind.known?.recall10).toBeGreaterThanOrEqual(at10.byKind.known!.recall5!);
+    expect(runBenchmark(db, queries, { limit: 5 }).byKind.known?.recall10).toBeUndefined();
+    expect(runBenchmark(db, queries, { limit: 10 }).byKind.known?.recall10).toBeDefined();
+  });
+
+  it('estimated response tokens are smaller at limit 5 than at limit 10', () => {
+    const { at5, at10 } = compareLimits(db, queries, { ranking: 'baseline' });
+    expect(at5.estimatedResponseTokens.mean).toBeGreaterThan(0);
+    expect(at5.estimatedResponseTokens.mean).toBeLessThan(at10.estimatedResponseTokens.mean);
+    expect(at5.estimatedResponseTokens.p95).toBeLessThanOrEqual(at10.estimatedResponseTokens.p95);
+  });
+
+  it('the token estimate is computed from the tool JSON: a field added by the serializer changes it', async () => {
+    const actual = await vi.importActual<typeof import('../../src/tools/search-knowledge.js')>('../../src/tools/search-knowledge.js');
+    const before = runBenchmark(db, queries, { limit: 5 }).estimatedResponseTokens;
+
+    vi.mocked(handleSearchKnowledge).mockImplementation((d, args, overrides) => {
+      const response = actual.handleSearchKnowledge(d, args, overrides);
+      const parsed = JSON.parse(response.content[0].text) as Record<string, unknown>;
+      parsed['extra_field'] = 'x'.repeat(400);
+      return { content: [{ type: 'text' as const, text: JSON.stringify(parsed) }] };
+    });
+    const after = runBenchmark(db, queries, { limit: 5 }).estimatedResponseTokens;
+
+    // ',"extra_field":"' + 400 chars + '"' is about 417 chars, so about 104 tokens per response.
+    expect(after.mean - before.mean).toBeGreaterThan(100);
+    expect(after.mean - before.mean).toBeLessThan(110);
+    expect(after.p95).toBeGreaterThan(before.p95);
+  });
+
+  it('compareLimitsByRanking covers baseline, x and y with an independent real run each', () => {
+    vi.mocked(handleSearchKnowledge).mockClear();
+    const byRanking = compareLimitsByRanking(db, round1());
+    expect(Object.keys(byRanking)).toEqual(['baseline', 'x', 'y']);
+    expect(vi.mocked(handleSearchKnowledge)).toHaveBeenCalledTimes(6);
+    expect(byRanking.x.at10.byKind.known?.hit1).toBe(1);
+  });
+
+  it('formatLimitComparison labels token figures as estimated and shows recall per kind', () => {
+    const text = formatLimitComparison(compareLimitsByRanking(db, queries));
+    expect(text).toContain('ranking baseline');
+    expect(text).toContain('ranking x');
+    expect(text).toContain('ranking y');
+    expect(text).toContain('recall@5 (limit 5)');
+    expect(text).toContain('recall@10 (limit 10)');
+    expect(text).toContain('estimated response tokens');
+  });
+
+  describe('CLI flags', () => {
+    let logged: string[];
+    let previousStore: string | undefined;
+
+    beforeEach(() => {
+      logged = [];
+      previousStore = process.env['KNOWLEDGE_STORE_PATH'];
+      process.env['KNOWLEDGE_STORE_PATH'] = FIXTURE_STORE;
+      vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+        logged.push(args.join(' '));
+      });
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      if (previousStore === undefined) delete process.env['KNOWLEDGE_STORE_PATH'];
+      else process.env['KNOWLEDGE_STORE_PATH'] = previousStore;
+    });
+
+    it('--compare-limits prints one table per ranking', async () => {
+      await runBenchmarkCli(['--compare-limits']);
+      const out = logged.join('\n');
+      expect(out).toContain('ranking baseline');
+      expect(out).toContain('ranking x');
+      expect(out).toContain('ranking y');
+      expect(out).toContain('estimated response tokens');
+    });
+
+    it('--limit N runs a single benchmark at that limit', async () => {
+      await runBenchmarkCli(['--limit', '5']);
+      const out = logged.join('\n');
+      expect(out).toContain('top-1 hits');
+      expect(out).not.toContain('recall@10');
+      expect(out).toContain('estimated response tokens');
+      logged.length = 0;
+      await runBenchmarkCli(['--limit', '10']);
+      expect(logged.join('\n')).toContain('recall@10');
+    });
+
+    it('--limit rejects a value that is not a positive integer', async () => {
+      await expect(runBenchmarkCli(['--limit', 'abc'])).rejects.toThrow(/--limit/);
+      await expect(runBenchmarkCli(['--limit'])).rejects.toThrow(/--limit/);
     });
   });
 });

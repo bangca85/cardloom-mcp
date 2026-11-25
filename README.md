@@ -614,6 +614,22 @@ have zero full-text hits. `--matrix` runs the same queries under `baseline/off`,
 npm run build && npm run benchmark -- --synthetic --matrix
 ```
 
+`--limit <n>` runs the benchmark with `search_knowledge`'s `limit` set to `n` (the report then also shows
+recall@10 when `n` is 10 or more). `--compare-limits` runs every query twice, once with `limit` 5 and once with
+`limit` 10, for each ranking (`baseline`, `x`, `y`), and prints one table per ranking: recall@5 per kind for the
+limit-5 run, recall@5 and recall@10 for the limit-10 run, hit@1 and each kind's own metric for both, and the
+estimated response size of both runs (mean and p95 tokens). Both are real runs, never "run 10 and cut to 5",
+because with the tiered fallback `limit` decides whether the OR tier runs at all: when the AND tier already
+returns `limit` cards, the OR tier is skipped, so a card that only matches some terms can appear at 10 and
+not at 5. Token figures are estimates (the JSON `search_knowledge` returns, characters divided by 4), not a
+tokenizer count. The two flags cannot be combined, and an offline fixture to try them on lives in
+`tests/fixtures/benchmark-store`:
+
+```bash
+npm run build && npm run benchmark -- --compare-limits
+KNOWLEDGE_STORE_PATH=tests/fixtures/benchmark-store npm run benchmark -- --compare-limits
+```
+
 Write queries the way you'd actually ask — real questions, real pasted error messages — each
 pointing at the card id you expect to come back first. Multiple queries can point at the same
 card.

@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Benchmark: `--compare-limits` runs every query with `limit` 5 and with `limit` 10 (two real runs) for each
+  ranking and prints recall@5 and recall@10 per kind plus the estimated response tokens (mean and p95,
+  measured on the JSON `search_knowledge` returns, characters / 4). `--limit <n>` runs a single benchmark at
+  that limit; recall@10 appears when `n` is 10 or more. The search default is unchanged. A synthetic fixture
+  store for trying it is in `tests/fixtures/benchmark-store`.
 - Benchmark: four new query kinds, `superseded` (needs `replaced`), `stale`, `drift` (needs `context.versions`)
   and `wrong_scope` (needs `forbidden`), each scored per failure type: `visible` (is the replaced card still
   in the top 5), `retrieved` (is the expected card in the top 5), `flag acc` (is it flagged stale or drift)
