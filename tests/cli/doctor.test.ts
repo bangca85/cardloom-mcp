@@ -237,7 +237,57 @@ describe('runDoctor review stats', () => {
   });
 });
 
+function gitCommitAll(store: string, message: string, daysAgo: number): void {
+  const date = new Date(NOW.getTime() - daysAgo * DAY_MS).toISOString();
+  const env = { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date };
+  execFileSync('git', ['add', '-A'], { cwd: store, env });
+  execFileSync(
+    'git',
+    ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', message],
+    { cwd: store, env },
+  );
+}
+
+describe('runDoctor draft age source', () => {
+  it('counts age from the commit that added the card, not the file mtime', async () => {
+    execFileSync('git', ['init', '-q'], { cwd: tmp });
+    writeAged(tmp, 'pattern-draft-old.md', cardFile({ title: 'Draft old', status: 'draft' }), 0);
+    gitCommitAll(tmp, 'add old', 40);
+    writeAged(tmp, 'pattern-draft-new.md', cardFile({ title: 'Draft new', status: 'draft' }), 0);
+    gitCommitAll(tmp, 'add new', 10);
+    // A later edit must not reset the age.
+    writeAged(tmp, 'pattern-draft-old.md', cardFile({ title: 'Draft old edited', status: 'draft' }), 0);
+    gitCommitAll(tmp, 'edit old', 1);
+
+    const report = await runDoctor(tmp, path.join(tmp, 'index.db'), NOW);
+    expect(report.review.pendingDrafts).toBe(2);
+    expect(report.review.oldestDraftDays).toBe(40);
+  });
+
+  it('falls back to the file mtime when the store is not a git repo', async () => {
+    writeAged(tmp, 'pattern-draft-old.md', cardFile({ title: 'Draft old', status: 'draft' }), 25);
+    const report = await runDoctor(tmp, path.join(tmp, 'index.db'), NOW);
+    expect(report.isGitRepo).toBe(false);
+    expect(report.review.oldestDraftDays).toBe(25);
+  });
+
+  it('falls back to the mtime for a draft with no commit yet', async () => {
+    execFileSync('git', ['init', '-q'], { cwd: tmp });
+    writeAged(tmp, 'pattern-committed.md', cardFile({ title: 'Committed', status: 'draft' }), 0);
+    gitCommitAll(tmp, 'add committed', 10);
+    writeAged(tmp, 'pattern-untracked.md', cardFile({ title: 'Untracked', status: 'draft' }), 30);
+    const report = await runDoctor(tmp, path.join(tmp, 'index.db'), NOW);
+    expect(report.review.oldestDraftDays).toBe(30);
+  });
+});
+
 describe('formatDoctorReport', () => {
+  it('omits the review block when the store does not exist', async () => {
+    const text = formatDoctorReport(await runDoctor(path.join(tmp, 'missing-store'), path.join(tmp, 'index.db')));
+    expect(text).not.toContain('Review:');
+    expect(text).not.toContain('Approved by a human');
+  });
+
   it('says a missing store is created on first server start', async () => {
     const text = formatDoctorReport(await runDoctor(path.join(tmp, 'missing-store'), path.join(tmp, 'index.db')));
     expect(text.split('\n')[0]).toContain('(not found — created on first server start)');

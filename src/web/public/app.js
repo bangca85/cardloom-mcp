@@ -411,12 +411,12 @@ btnApprove.addEventListener('click', async () => {
 
 // Action: Deprecate Card. Reject is the same call for a draft, with "rejected: " in front of the reason
 // so the review stats in `doctor` and the distill prompt can tell a turned-down draft from a retired one.
-async function deprecateActiveCard(button, promptText, reasonPrefix) {
+async function deprecateActiveCard(button, promptText, reasonPrefix, emptyMessage) {
   if (!activeCardId) return;
   const reason = prompt(promptText);
   if (reason === null) return; // user cancelled
   if (reason.trim() === '') {
-    showToast('Input Error', 'Deprecation reason cannot be empty.', 'error');
+    showToast('Input Error', emptyMessage, 'error');
     return;
   }
 
@@ -426,7 +426,11 @@ async function deprecateActiveCard(button, promptText, reasonPrefix) {
     const res = await fetch(`/api/cards/${activeCardId}/deprecate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reason: reasonPrefix + reason.trim() })
+      body: JSON.stringify({
+        reason: reasonPrefix && reason.trim().toLowerCase().startsWith(reasonPrefix.trim())
+          ? reason.trim()
+          : reasonPrefix + reason.trim(),
+      })
     });
     const outcome = await res.json();
 
@@ -457,9 +461,9 @@ async function deprecateActiveCard(button, promptText, reasonPrefix) {
 }
 
 btnDeprecate.addEventListener('click', () =>
-  deprecateActiveCard(btnDeprecate, 'Please enter the deprecation reason (required):', ''));
+  deprecateActiveCard(btnDeprecate, 'Please enter the deprecation reason (required):', '', 'Deprecation reason cannot be empty.'));
 btnReject.addEventListener('click', () =>
-  deprecateActiveCard(btnReject, 'Why is this draft rejected? (required)', 'rejected: '));
+  deprecateActiveCard(btnReject, 'Why is this draft rejected? (required)', 'rejected: ', 'Rejection reason cannot be empty.'));
 
 // Render Network Graph
 async function renderGraph() {

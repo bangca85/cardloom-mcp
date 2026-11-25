@@ -400,7 +400,9 @@ until it is verified. To promote or retire one:
 
 `npm run doctor` shows how review is going: drafts waiting (and the age of the oldest), cards approved by
 a human, by merge promotion, rejected, and retired before review, and the human approval rate (of drafts a
-human approved or rejected; merge promotion and retired drafts are listed beside it, not in it).
+human approved or rejected; merge promotion and retired drafts are listed beside it, not in it). A draft's
+age is counted from the commit that added the card when the store is a git repository, otherwise from the
+card file's modification time.
 
 `deprecated` is terminal — there's no un-deprecate. To bring a retired idea back, save a new card
 with `supersedes` pointing at the old one and approve it.

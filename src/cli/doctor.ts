@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import type Database from 'better-sqlite3';
 import { config } from '../config/env.js';
 import { EMPTY_STORE_HINT } from '../config/messages.js';
@@ -9,7 +10,10 @@ import { buildFreshIndex, parseQueriesYaml } from './benchmark.js';
 /** How drafts are being reviewed. A card is "ever approved" when `verified_by` is set (deprecation keeps it). */
 export interface ReviewStats {
   pendingDrafts: number;
-  /** Age in whole days of the oldest draft; `null` when there are no drafts. */
+  /**
+   * Age in whole days of the oldest draft, counted from the commit that added the card when the store is a
+   * git repository, else from the card file's mtime; `null` when there are no drafts.
+   */
   oldestDraftDays: number | null;
   approvedByHuman: number;
   approvedByMergePromotion: number;
@@ -56,13 +60,44 @@ function isDirectory(p: string): boolean {
   }
 }
 
-function computeReview(db: Database.Database, now: Date): ReviewStats {
+/**
+ * When each card file was first added to the store's git history (epoch seconds, earliest wins), from ONE
+ * `git log` for the whole store. Empty when the store is not a git repo or git fails: callers fall back to mtime.
+ */
+function firstAddedByCard(storePath: string): Map<string, number> {
+  const added = new Map<string, number>();
+  try {
+    const out = execFileSync(
+      'git',
+      ['log', '--no-renames', '--diff-filter=A', '--name-only', '--relative', '--format=%x00%at', '--', 'cards/'],
+      { cwd: storePath, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 },
+    );
+    for (const block of out.split('\0')) {
+      const [first, ...files] = block.split('\n');
+      const at = Number(first);
+      if (first === undefined || first.trim() === '' || !Number.isFinite(at)) continue;
+      for (const file of files) {
+        const f = file.trim();
+        if (!f.startsWith('cards/') || !f.endsWith('.md')) continue;
+        const id = path.basename(f, '.md');
+        const prev = added.get(id);
+        if (prev === undefined || at < prev) added.set(id, at);
+      }
+    }
+  } catch {
+    return new Map();
+  }
+  return added;
+}
+
+function computeReview(db: Database.Database, now: Date, firstAdded: Map<string, number>): ReviewStats {
   const review = emptyReview();
   const rows = db
     .prepare(
-      'SELECT status, verified_by, verification_method, deprecation_reason, created_at FROM cards',
+      'SELECT id, status, verified_by, verification_method, deprecation_reason, created_at FROM cards',
     )
     .all() as Array<{
+    id: string;
     status: string;
     verified_by: string | null;
     verification_method: string | null;
@@ -73,7 +108,8 @@ function computeReview(db: Database.Database, now: Date): ReviewStats {
   for (const row of rows) {
     if (row.status === 'draft') {
       review.pendingDrafts++;
-      const created = Date.parse(row.created_at);
+      const committed = firstAdded.get(row.id);
+      const created = committed !== undefined ? committed * 1000 : Date.parse(row.created_at);
       if (!Number.isNaN(created) && (oldestMs === null || created < oldestMs)) oldestMs = created;
     }
     if (row.verified_by) {
@@ -122,7 +158,7 @@ export async function runDoctor(
         report.cards[row.status] = row.c;
       }
     }
-    report.review = computeReview(db, now);
+    report.review = computeReview(db, now, report.isGitRepo ? firstAddedByCard(storePath) : new Map());
   } finally {
     db.close();
   }
@@ -149,16 +185,19 @@ export function formatDoctorReport(r: DoctorReport): string {
     `  deprecated: ${r.cards.deprecated}`,
     `Benchmark queries: ${r.benchmarkQueries === null ? 'none' : r.benchmarkQueries}`,
   ];
-  const v = r.review;
-  const age = v.oldestDraftDays === null ? '' : ` (oldest ${v.oldestDraftDays} ${v.oldestDraftDays === 1 ? 'day' : 'days'})`;
-  lines.push(
-    `Review: ${v.pendingDrafts} ${v.pendingDrafts === 1 ? 'draft' : 'drafts'} waiting${age}`,
-    `Approved by a human: ${v.approvedByHuman} · by merge promotion: ${v.approvedByMergePromotion} · rejected: ${v.rejectedByHuman} · retired before review: ${v.retiredUnreviewed}`,
-  );
-  if (v.humanApprovalRate !== null) {
+  if (r.storeExists) {
+    const v = r.review;
+    const age =
+      v.oldestDraftDays === null ? '' : ` (oldest ${v.oldestDraftDays} ${v.oldestDraftDays === 1 ? 'day' : 'days'})`;
     lines.push(
-      `Human approval rate: ${Math.round(v.humanApprovalRate * 100)}% of drafts a human approved or rejected (${v.approvedByHuman} of ${v.approvedByHuman + v.rejectedByHuman})`,
+      `Review: ${v.pendingDrafts} ${v.pendingDrafts === 1 ? 'draft' : 'drafts'} waiting${age}`,
+      `Approved by a human: ${v.approvedByHuman} · by merge promotion: ${v.approvedByMergePromotion} · rejected: ${v.rejectedByHuman} · retired before review: ${v.retiredUnreviewed}`,
     );
+    if (v.humanApprovalRate !== null) {
+      lines.push(
+        `Human approval rate: ${Math.round(v.humanApprovalRate * 100)}% of drafts a human approved or rejected (${v.approvedByHuman} of ${v.approvedByHuman + v.rejectedByHuman})`,
+      );
+    }
   }
   if (r.benchmarkQueriesInvalid) {
     lines.push('Warning: benchmark/queries.yaml is invalid (could not be parsed).');
