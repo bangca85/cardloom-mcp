@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- New `upgrade-check` command (`npx cardloom-mcp upgrade-check --to nextjs@15.0.0`): reads `.knowledge-map.yaml` in the
+  current directory and, for each `--to <tech>@<version>`, lists the verified cards that stop applying, start applying
+  or apply at both the mapped version and the target (at most 20 per list, `--json` for scripts). Read-only. The drift
+  rule it uses is now the exported `cardDriftsFor` in `search-service`, which search calls too, so the two cannot
+  disagree; search behaviour is unchanged.
 - `get_card` (and the `knowledge://card/{id}` resource) now returns `source: { repo, commit, approved_at }`: `repo` is
   `source_repo` (else the first `applies_to` entry), `commit` is the sha in `source_commit` shortened to 7 characters,
   `approved_at` is the date part of `last_verified` (`null` for drafts); each is `null` when unknown. The agent

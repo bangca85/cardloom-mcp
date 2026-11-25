@@ -176,8 +176,17 @@ function computeScopeRank(layer: ScopeLayer | null, facetMatch: boolean, drift: 
   return 3;
 }
 
-function computeDrift(card: CardRow, context?: SearchContext): boolean {
-  if (card.status !== 'verified' || !context?.stack || !context.versions) return false;
+/**
+ * The one drift rule (AD-10): a verified card drifts for a caller when one of its stack tags is in the
+ * caller's stack with a known version that does not intersect the card's `version_range`. `card.stack` is the
+ * JSON string column. Tags are compared lowercased with whitespace as `-`.
+ */
+export function cardDriftsFor(
+  card: { status: string; stack: string; version_range: string },
+  stack: string[],
+  versions: Record<string, string>,
+): boolean {
+  if (card.status !== 'verified') return false;
 
   let cardStack: string[];
   try {
@@ -187,17 +196,19 @@ function computeDrift(card: CardRow, context?: SearchContext): boolean {
     return false;
   }
 
-  const relevantTags = cardStack.filter((tag) => {
-    const norm = tag.toLowerCase().replace(/\s+/g, '-');
-    return context.stack!.includes(norm) && context.versions![norm] !== undefined;
-  });
+  const normalize = (tag: string): string => tag.toLowerCase().replace(/\s+/g, '-');
+  const callerStack = stack.map(normalize);
+  const callerVersions = Object.fromEntries(Object.entries(versions).map(([k, v]) => [normalize(k), v]));
 
-  if (relevantTags.length === 0) return false;
-
-  return relevantTags.some((tag) => {
-    const norm = tag.toLowerCase().replace(/\s+/g, '-');
-    return !versionRangesIntersect(card.version_range, context.versions![norm]);
+  return cardStack.some((tag) => {
+    const norm = normalize(tag);
+    return callerStack.includes(norm) && callerVersions[norm] !== undefined && !versionRangesIntersect(card.version_range, callerVersions[norm]);
   });
+}
+
+function computeDrift(card: CardRow, context?: SearchContext): boolean {
+  if (!context?.stack || !context.versions) return false;
+  return cardDriftsFor(card, context.stack, context.versions);
 }
 
 /** True when the index holds at least one verified card (used to explain an empty store). */

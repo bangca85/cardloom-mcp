@@ -6,15 +6,16 @@ import path from 'node:path';
 import { resolveLauncherEnv } from '../dist/cli/launcher-env.js';
 
 const USAGE = [
-  'Usage: cardloom-mcp            start the MCP server on stdio',
-  '       cardloom-mcp doctor     check the store and index',
-  '       cardloom-mcp triage     list drafts with the cards to compare them with',
-  '       cardloom-mcp install    register the server and instructions with the agent CLIs found (plan; --yes applies)',
+  'Usage: cardloom-mcp                start the MCP server on stdio',
+  '       cardloom-mcp doctor         check the store and index',
+  '       cardloom-mcp triage         list drafts with the cards to compare them with',
+  '       cardloom-mcp upgrade-check  list cards affected by a version change (--to <tech>@<version>)',
+  '       cardloom-mcp install        register the server and instructions with the agent CLIs found (plan; --yes applies)',
 ].join('\n');
 
 // Unknown arguments must not start the server (or create ~/.cardloom): print usage to stderr only.
 const arg = process.argv[2];
-if (arg !== undefined && arg !== 'doctor' && arg !== 'triage' && arg !== 'install') {
+if (arg !== undefined && arg !== 'doctor' && arg !== 'triage' && arg !== 'upgrade-check' && arg !== 'install') {
   console.error(USAGE);
   process.exit(arg === '--help' || arg === '-h' ? 0 : 1);
 }
@@ -75,6 +76,25 @@ if (arg === 'install') {
       }
     } catch (err) {
       console.error('[triage] failed:', err);
+      process.exitCode = 1;
+    }
+  } else if (arg === 'upgrade-check') {
+    try {
+      const { runUpgradeCheckCommand, parseUpgradeCheckArgs, UPGRADE_CHECK_USAGE } = await import('../dist/cli/upgrade-check.js');
+      const args = parseUpgradeCheckArgs(process.argv.slice(3));
+      if (args === null) {
+        console.error(UPGRADE_CHECK_USAGE);
+        process.exitCode = 1;
+      } else if (args.help) {
+        console.log(UPGRADE_CHECK_USAGE);
+      } else {
+        const { stdout, stderr, exitCode } = await runUpgradeCheckCommand(process.env.KNOWLEDGE_STORE_PATH, process.cwd(), args);
+        if (stdout !== '') console.log(stdout);
+        if (stderr !== '') console.error(stderr);
+        process.exitCode = exitCode;
+      }
+    } catch (err) {
+      console.error('[upgrade-check] failed:', err);
       process.exitCode = 1;
     }
   } else {

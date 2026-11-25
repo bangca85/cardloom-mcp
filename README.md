@@ -485,6 +485,33 @@ not predict what `verify` will do (verify does not run the conflict check). `--l
 oldest `n` drafts; `--json` prints the report as JSON. It reads the card files, not `index.db`, so it works
 without the server running.
 
+### Checking an upgrade
+
+Before bumping a dependency, ask which verified cards it affects. Run this in a repo that has a
+[`.knowledge-map.yaml`](#knowledge-mapyaml--giving-the-agent-context-per-repo) whose `stack` lists the tech with a
+version (`nextjs@14.2.0`), and pass the version you are moving to:
+
+```
+$ npx cardloom-mcp upgrade-check --to nextjs@15.0.0
+nextjs 14.2.0 -> 15.0.0
+
+  Stop applying (1)
+    pattern-old · Old routing rule
+
+  Start applying (1)
+    pattern-new · New caching default
+
+  Apply to both (1)
+    pattern-both · Image config applies to both
+```
+
+Cards are matched on the card's `version_range` with the same rule search uses for its `drift` flag. Only verified,
+non-restricted cards that name the tech in their `stack` and have a `version_range` other than `*` are listed, sorted
+by id, at most 20 per list (a list that reached 20 says so). `--to` can be repeated for several techs; a tech that
+is not in the map, or that has no version there, is an error naming it. `--json` prints the result as an array of
+`{ tech, from, to, stopApplying, startApplying, stillApplying }` with card ids. It reads the card files, changes
+nothing, and works without the server running.
+
 ## Ingesting an existing project
 
 Use the built-in prompt `distill_project_knowledge` to turn a repo's docs, architecture decisions, git
