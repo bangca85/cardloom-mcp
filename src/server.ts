@@ -149,9 +149,13 @@ export function createServer(db: Database.Database, knowledgeStorePath: string):
     {
       title: 'Get Card',
       description:
-        'Read a single knowledge card by id — full metadata, body, trust, and status labels (draft -> untrusted, deprecated -> deprecated + reason, restricted -> restricted). Same content as the knowledge://card/{id} Resource. "replacement.pending": a draft proposes to replace this card; it is still the current answer, tell the user. "replacement.superseded_by": read that card instead. The card carries "source" (repo, commit, approval date) — when a card from another project helps, tell the user which project and commit it came from. Every response carries a write_back_reminder: after using this card you MUST call report_card_usage(id, outcome).',
+        'Read a single knowledge card by id — full metadata, body, trust, and status labels (draft -> untrusted, deprecated -> deprecated + reason, restricted -> restricted). Same content as the knowledge://card/{id} Resource. "replacement.pending": a draft proposes to replace this card; it is still the current answer, tell the user. "replacement.superseded_by": read that card instead. The card carries "source" (repo, commit, approval date) — when a card from another project helps, tell the user which project and commit it came from. Every response carries a write_back_reminder: after using this card you MUST call report_card_usage(id, outcome). compact: true returns only the first 600 characters of the body (truncated: true when cut); call again without it for the full card.',
       inputSchema: {
         id: z.string().describe('Card id, e.g. "pattern-use-x-pattern"'),
+        compact: z
+          .boolean()
+          .optional()
+          .describe('When true, return only the first 600 characters of the body (truncated: true when cut). Default false: the full body.'),
       },
     },
     withErrorBoundary((args) => handleGetCard(db, args)),

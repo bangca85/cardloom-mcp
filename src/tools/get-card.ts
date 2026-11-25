@@ -4,10 +4,11 @@ import { WRITE_BACK_REMINDER } from '../config/messages.js';
 
 export interface GetCardArgs {
   id: string;
+  compact?: boolean;
 }
 
 export function handleGetCard(db: Database.Database, args: GetCardArgs) {
-  const card = renderCard(db, args.id);
+  const card = renderCard(db, args.id, new Date(), { compact: args.compact });
 
   return {
     content: [

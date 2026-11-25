@@ -325,6 +325,8 @@ export interface RenderedCard extends CardLabels {
   trust: number;
   flags: RenderedCardFlags;
   replacement?: CardReplacement;
+  /** Present (true) only when a compact render cut the body; absent for a full or short body. */
+  truncated?: true;
 }
 
 /** `resolveSupersededBy` over the index: the one rule shared by `get_card`, triage and the D6 refusal. */
@@ -374,12 +376,37 @@ export function computeCardFlags(
   return flags;
 }
 
+/** Longest body (in characters, i.e. code points) a compact render keeps before the ellipsis. */
+const COMPACT_BODY_LIMIT = 600;
+
+/**
+ * First `COMPACT_BODY_LIMIT` characters of `body` plus `…`, cut on a code point boundary so a surrogate pair is never
+ * split. A body of that many characters or fewer is returned as is (`cut: false`).
+ */
+function compactBody(body: string): { body: string; cut: boolean } {
+  // A string with at most LIMIT UTF-16 units has at most LIMIT code points: skip the scan.
+  if (body.length <= COMPACT_BODY_LIMIT) return { body, cut: false };
+  let end = 0;
+  let kept = 0;
+  while (kept < COMPACT_BODY_LIMIT && end < body.length) {
+    end += body.codePointAt(end)! > 0xffff ? 2 : 1;
+    kept += 1;
+  }
+  if (end >= body.length) return { body, cut: false };
+  return { body: `${body.slice(0, end)}…`, cut: true };
+}
+
 /**
  * The ONE function that renders a full card (metadata + body + trust + flags + labels).
  * get_card and the knowledge://card/{id} Resource both call this — neither serializes a
  * raw card row directly (AD-15, NFR3: no unlabeled draft/deprecated content ever reaches context).
  */
-export function renderCard(db: Database.Database, id: string, now: Date = new Date()): RenderedCard {
+export function renderCard(
+  db: Database.Database,
+  id: string,
+  now: Date = new Date(),
+  opts: { compact?: boolean } = {},
+): RenderedCard {
   const row = db.prepare('SELECT * FROM cards WHERE id = ?').get(id) as CardRow | undefined;
   if (!row) {
     throw new NotFoundError(id);
@@ -424,6 +451,7 @@ export function renderCard(db: Database.Database, id: string, now: Date = new Da
   }
 
   const replacement = computeReplacement(db, row);
+  const body = opts.compact === true ? compactBody(row.body) : { body: row.body, cut: false };
 
   return {
     id: row.id,
@@ -453,12 +481,13 @@ export function renderCard(db: Database.Database, id: string, now: Date = new Da
     last_verified: row.last_verified,
     deprecated_at: row.deprecated_at,
     deprecated_by: row.deprecated_by,
-    body: row.body,
+    body: body.body,
     created_at: row.created_at,
     updated_at: row.updated_at,
     trust,
     flags,
     ...(replacement ? { replacement } : {}),
+    ...(body.cut ? { truncated: true as const } : {}),
     ...labels,
   };
 }

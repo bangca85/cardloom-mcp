@@ -167,6 +167,35 @@ describe('MCP server surface (story 1.6)', () => {
     expect(toolBody.card['untrusted']).toBe(true);
   });
 
+  it('get_card compact cuts the body and sets truncated, while the Resource stays full', async () => {
+    const longBody = 'Long retry body. '.repeat(100);
+    await client.callTool({
+      name: 'save_learning_draft',
+      arguments: baseArgs({ title: 'Compact check pattern', body: longBody }),
+    });
+    const id = 'pattern-compact-check-pattern';
+    const text = (r: unknown): string => (r as { content: Array<{ text: string }> }).content[0]!.text;
+
+    const compact = JSON.parse(text(await client.callTool({ name: 'get_card', arguments: { id, compact: true } }))) as {
+      card: { body: string; truncated?: boolean; untrusted?: boolean };
+    };
+    const full = JSON.parse(text(await client.callTool({ name: 'get_card', arguments: { id } }))) as {
+      card: { body: string; truncated?: boolean };
+    };
+    const resource = JSON.parse(
+      (((await client.readResource({ uri: `knowledge://card/${id}` })).contents[0]) as { text: string }).text,
+    ) as { card: { body: string; truncated?: boolean } };
+
+    expect(compact.card.truncated).toBe(true);
+    expect(compact.card.untrusted).toBe(true);
+    expect(Array.from(compact.card.body)).toHaveLength(601);
+    expect(compact.card.body.endsWith('…')).toBe(true);
+    expect(Array.from(full.card.body).length).toBeGreaterThan(601);
+    expect('truncated' in full.card).toBe(false);
+    expect(resource.card).toEqual(full.card);
+    expect(Array.from(resource.card.body).length).toBeGreaterThan(601);
+  });
+
   it('report_card_usage returns not_found for a missing id (AC3, story 3.2)', async () => {
     const result = await client.callTool({
       name: 'report_card_usage',

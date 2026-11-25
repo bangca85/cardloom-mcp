@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- `get_card` takes an optional `compact` argument (default false, so nothing changes unless it is asked for):
+  `compact: true` returns the first 600 characters of the body followed by `…` and sets `truncated: true`; the cut is on a
+  character boundary and never splits a surrogate pair. A body of 600 characters or fewer is returned unchanged with no
+  `truncated` key. Labels, flags, `replacement`, `source` and `trust` are the same as in the full render, and the
+  `knowledge://card/{id}` Resource stays full. The default is not changed.
 - New `context` command (owner decision D4; `npx cardloom-mcp context [--project <key>] [--max-cards 5]
   [--max-estimated-tokens 800]`, also `npm run context`): prints a bounded list of the verified, normal-sensitivity cards
   of the current project, global cards and stack-scoped cards that intersect the stack, for a Claude Code `SessionStart`
