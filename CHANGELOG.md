@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- `update_card_status(verify)` now refuses a draft whose `supersedes` target was already replaced by another card
+  (`invalid_transition`, `<old-id> is already superseded by <other-id>`); nothing is written and the draft stays a draft.
+  A target deprecated for any other reason behaves as before.
 - Default search `limit` is now 5 (was 10); pass `limit` for more.
 - New `install` command (`npx -y cardloom-mcp install`, then `--yes`): finds the `claude`, `codex` and `gemini` CLIs
   on PATH, registers the server for all projects (`claude mcp add --scope user`, `codex mcp add`,

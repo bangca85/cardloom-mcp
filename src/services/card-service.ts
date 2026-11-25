@@ -485,6 +485,32 @@ export interface UpdateCardStatusResult {
 }
 
 /**
+ * D6 (AD-13 amendment): verifying a draft whose `supersedes` target is already deprecated with the reason
+ * `superseded by <other-id>` (another card than the one being verified) is refused. A target deprecated for
+ * any other reason, or one that does not exist, is not this function's business.
+ */
+function assertNotAlreadySuperseded(
+  db: Database.Database,
+  targetId: string,
+  newId: string,
+  fromStatus: Card['status'],
+): void {
+  const target = db.prepare('SELECT status, deprecation_reason FROM cards WHERE id = ?').get(targetId) as
+    | { status: Card['status']; deprecation_reason: string | null }
+    | undefined;
+  if (target?.status !== 'deprecated') return;
+  const other = parseSupersededBy(target.deprecation_reason);
+  if (other === null || other === newId) return;
+  throw new InvalidTransitionError(
+    fromStatus,
+    'verify',
+    VALID_TRANSITIONS[fromStatus].filter((s) => s !== 'verified'),
+    `${targetId} is already superseded by ${other}`,
+    { supersedes: targetId, superseded_by: other },
+  );
+}
+
+/**
  * The only place a card's status ever changes (AD-9). `verify` and `deprecate` are the sole
  * actions; deprecate is invalidate-and-preserve (FR3) — the file is rewritten, never deleted.
  */
@@ -553,6 +579,9 @@ export async function updateCardStatus(
       } else if (oldRow.status !== 'deprecated') {
         supersedeTargetId = supersedes;
         oldCardPath = potentialOldCardPath;
+      } else {
+        // D6 (AD-13 amendment): the target is already replaced by another card — refuse before any write.
+        assertNotAlreadySuperseded(db, supersedes, input.id, row.status);
       }
     }
   }
@@ -595,6 +624,8 @@ export async function updateCardStatus(
       validatedCard = validateCardStrict(nextFrontmatter);
 
       if (oldCardPath && supersedeTargetId) {
+        // Under the lock: another verify may have replaced the target since the pre-check above (D6).
+        assertNotAlreadySuperseded(db, supersedeTargetId, input.id, row.status);
         const freshOldRow = db.prepare('SELECT status FROM cards WHERE id = ?').get(supersedeTargetId) as
           | { status: Card['status'] }
           | undefined;

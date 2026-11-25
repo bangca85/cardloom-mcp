@@ -444,7 +444,9 @@ until it is verified. To promote or retire one:
 
 - **Approve:** tell the agent to approve a card; it calls
   `update_card_status(id, "verify")`. Status flips to `verified`, and if the card declared
-  `supersedes: <old-id>`, the old card is deprecated in the *same* operation (one commit).
+  `supersedes: <old-id>`, the old card is deprecated in the *same* operation (one commit). If that old card was already
+  replaced by another card, the approval is refused with `invalid_transition` (`<old-id> is already superseded by <other-id>`) and nothing
+  changes; the draft stays a draft and can still be deprecated.
 - **Reject / retire:** tell the agent to deprecate a card with a reason; it calls
   `update_card_status(id, "deprecate", reason)`. The file is kept (a retired card is never
   deleted) and disappears from default search, but stays readable via `get_card`.

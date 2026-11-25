@@ -35,11 +35,21 @@ export class SecretDetectedError extends KnowledgeError {
 }
 
 export class InvalidTransitionError extends KnowledgeError {
-  constructor(from: string, action: string, validTransitions: string[]) {
+  /**
+   * `message` and `extraDetails` let a specific refusal (e.g. verifying a draft whose supersede target was
+   * already replaced) say why, while keeping the standard `{from, action, validTransitions}` details.
+   */
+  constructor(
+    from: string,
+    action: string,
+    validTransitions: string[],
+    message?: string,
+    extraDetails?: Record<string, unknown>,
+  ) {
     super(
-      `Cannot apply action "${action}" from status "${from}". Valid transitions: ${validTransitions.join(', ')}`,
+      message ?? `Cannot apply action "${action}" from status "${from}". Valid transitions: ${validTransitions.join(', ')}`,
       'invalid_transition',
-      { from, action, validTransitions },
+      { from, action, validTransitions, ...extraDetails },
     );
   }
 }

@@ -301,4 +301,30 @@ describe('MCP server surface (story 1.6)', () => {
     expect(oldBody.card.status).toBe('deprecated');
     expect(oldBody.card.deprecation_reason).toBe(`superseded by ${newId}`);
   });
+
+  it('update_card_status surfaces a second supersede as invalid_transition naming the first successor (D6)', async () => {
+    await client.callTool({ name: 'save_learning_draft', arguments: baseArgs({ title: 'Rival base pattern' }) });
+    const oldId = 'pattern-rival-base-pattern';
+    await client.callTool({ name: 'update_card_status', arguments: { id: oldId, action: 'verify' } });
+    await client.callTool({
+      name: 'save_learning_draft',
+      arguments: baseArgs({ title: 'Rival first pattern', supersedes: oldId }),
+    });
+    await client.callTool({
+      name: 'save_learning_draft',
+      arguments: baseArgs({ title: 'Rival second pattern', supersedes: oldId, applies_to: ['worker'] }),
+    });
+    const firstId = 'pattern-rival-first-pattern';
+    const secondId = 'pattern-rival-second-pattern';
+    const first = await client.callTool({ name: 'update_card_status', arguments: { id: firstId, action: 'verify' } });
+    expect(first.isError).toBeFalsy();
+
+    const result = await client.callTool({ name: 'update_card_status', arguments: { id: secondId, action: 'verify' } });
+    expect(result.isError).toBe(true);
+    const body = JSON.parse((result.content as Array<{ type: string; text: string }>)[0]!.text) as {
+      error: { code: string; message: string };
+    };
+    expect(body.error.code).toBe('invalid_transition');
+    expect(body.error.message).toBe(`${oldId} is already superseded by ${firstId}`);
+  });
 });

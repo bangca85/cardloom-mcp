@@ -8,6 +8,7 @@ import { initKnowledgeStore } from '../../src/services/knowledge-store.js';
 import { resetGit } from '../../src/services/git-service.js';
 import { initializeSchema } from '../../src/db/schema.js';
 import { renderCard, saveLearningDraft, updateCardStatus } from '../../src/services/card-service.js';
+import { InvalidTransitionError } from '../../src/types/errors.js';
 import { handleGetCard } from '../../src/tools/get-card.js';
 
 interface CardFixture {
@@ -149,7 +150,7 @@ describe('renderCard replacement (real supersede flow)', () => {
       ...(supersedes ? { supersedes } : {}),
     });
 
-  it('(b) completes on verify, and a second verify of a rival draft leaves superseded_by unchanged', async () => {
+  it('(b) completes on verify, and a second verify of a rival draft is refused and leaves superseded_by unchanged', async () => {
     const a = (await draft('Alpha retries')).id;
     await updateCardStatus(db, storePath, { id: a, action: 'verify' });
     const b = (await draft('Beta retries', a)).id;
@@ -159,8 +160,9 @@ describe('renderCard replacement (real supersede flow)', () => {
     await updateCardStatus(db, storePath, { id: b, action: 'verify' });
     expect(renderCard(db, a).replacement).toEqual({ superseded_by: b, pending: [] });
 
-    // Behaviour today: verifying a second draft that supersedes an already-replaced card succeeds silently.
-    await updateCardStatus(db, storePath, { id: c, action: 'verify' });
+    // D6 behaviour change (owner-approved 2026-11-25): this used to succeed silently and keep a dead
+    // `supersedes` link. Verify now refuses a draft whose target was already replaced by another card.
+    await expect(updateCardStatus(db, storePath, { id: c, action: 'verify' })).rejects.toThrow(InvalidTransitionError);
     expect(renderCard(db, a).replacement).toEqual({ superseded_by: b, pending: [] });
   });
 });
