@@ -389,6 +389,17 @@ kept, and running it again does not add a second entry. To use it together with 
 }
 ```
 
+Things to know before relying on it:
+
+- **Docker users get no session context.** The hook runs on the host and reads the index at `~/.cardloom/index.db`
+  (or `INDEX_DB_PATH`), not the index in the Docker named volume, so with a Docker-only setup it prints nothing.
+- **`npx -y cardloom-mcp context` may contact the npm registry on every session start**, which can slow the start of a
+  session. For a faster hook, install the package globally (`npm install -g cardloom-mcp`) and register the command
+  `cardloom-mcp context` instead. `install --hooks` registers the `npx -y` form, so edit the `command` in
+  `~/.claude/settings.json` to switch.
+- **`npm run context` from a clone** reads the clone's own `.knowledge-map.yaml` (the current directory) and needs
+  `INDEX_DB_PATH` set to the index to read; without it, it prints nothing.
+
 ## Enforcing usage (CLAUDE.md / AGENTS.md / GEMINI.md)
 
 Nothing forces the agent to call these tools — MCP tools only fire when the model decides to. To have
@@ -933,6 +944,9 @@ cardloom adds one: agents only save drafts, a human approves them by default, an
 cards. Cards are markdown files in a git repository you own, and search runs locally without an LLM call.
 Drafts, retired and restricted cards are filtered out unless you ask for them, and are labelled when returned.
 Old cards are flagged `stale`, and `get_card` reports when a card has been replaced.
+`upgrade-check` lists the cards that stop or start applying when a dependency version changes, and `report` shows what
+the store did in recent days. A human can re-confirm old cards in bulk with `reconfirm`, without re-reviewing each one from
+scratch. An opt-in `SessionStart` hook can print a few verified cards at the start of a session.
 [`tests/integration/trust-guarantees.test.ts`](tests/integration/trust-guarantees.test.ts) checks these
 behaviours on the JSON the server returns. It does not test whether an agent uses them well.
 

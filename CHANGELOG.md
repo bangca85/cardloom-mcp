@@ -2,7 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## 1.3.0
+
+Every new switch in this release is off by default: nothing is recorded, registered, shortened or run unless you turn it on
+(`CARDLOOM_TELEMETRY=local`, `install --hooks`, `get_card` `compact`, `reconfirm`, `eval`), and no existing behaviour changes.
 
 - New maintainer-run agent-level eval harness under `eval/` (owner decision D5; `npm run eval -- [--runs N] [--modes ...]
   [--compact-pair] [--out dir]`, not shipped in the npm package, not run in CI): three modes (`top5`, `search_then_get`,
@@ -36,7 +39,7 @@ All notable changes to this project will be documented in this file.
   `CARDLOOM_TELEMETRY_SAMPLES=1`, also records the text of unanswered searches (at most 200 characters, left out when
   the secret scan flags it; the scan catches common credential formats only, case-sensitive, and does not remove customer names or internal terms). Lines older than 90 days are
   pruned at most once per UTC day per process, through a temp file and a rename. A write failure never changes the
-  response (one `[telemetry]` stderr line per process at most), and `benchmark` never records. The server refuses to write the file inside the knowledge store (symlinks followed; one stderr note per process, nothing created), which is what the default becomes when `INDEX_DB_PATH` is unset: set `INDEX_DB_PATH` or `CARDLOOM_TELEMETRY_PATH` outside the store. `npx cardloom-mcp gaps
+  response (one `[telemetry]` stderr line per process at most), and `benchmark` never records. The server refuses to write the file inside the knowledge store (symlinks followed; one stderr note per process, nothing created). That is where the default lands when `INDEX_DB_PATH` is unset and the server runs from a clone (`npm run dev`), because the index then defaults to `<store>/.metadata/index.db`; the `npx` launcher and Docker put the index outside the store. Set `INDEX_DB_PATH` or `CARDLOOM_TELEMETRY_PATH` outside the store. `npx cardloom-mcp gaps
   [--json]` (also `npm run gaps`) shows the counts, the first timestamp and, when text is recorded, the questions with no
   direct answer; it needs no index or store, and says so when the path is inside the store.
 - `update_card_status` gains `action: "reconfirm"` (AD-9 amendment, owner decision 2026-11-25): on a `verified` card it
