@@ -185,14 +185,25 @@ describe('runPromotion', () => {
     expect(report.entries[0]!.resolution?.via).toBe('first-parent');
   });
 
-  it('promotes a commit whose abbreviation is made only of digits', async () => {
-    // Hashes are deterministic here, so this search always stops at the same commit.
+  it('promotes a commit whose abbreviation is made only of digits', { timeout: 30_000 }, async () => {
+    // Fully deterministic: the history so far uses fixed content, identity and PAST dates, and every candidate
+    // below is a child of that same HEAD with a fixed date (never FUTURE, which moves with the clock), so the
+    // search always stops at the same candidate (index 8 with the git object format in use). Plumbing (`commit-tree`, one process per candidate) instead of
+    // add + commit keeps it fast; only the winner is made the tip of main.
+    const parent = gitIn(repo, ['rev-parse', 'HEAD']);
+    const tree = gitIn(repo, ['rev-parse', 'HEAD^{tree}']);
     let digits = '';
+    let winner = '';
     for (let i = 0; i < 400 && !digits; i++) {
-      const h = commit(repo, `digits-${i}.txt`, FUTURE);
-      if (/^[0-9]{7}$/.test(h.slice(0, 7))) digits = h.slice(0, 7);
+      const date = new Date(Date.UTC(2099, 0, 1, 0, 0, i)).toISOString();
+      const h = gitIn(repo, ['commit-tree', tree, '-p', parent, '-m', `digits-${i}`], date);
+      if (/^[0-9]{7}$/.test(h.slice(0, 7))) {
+        digits = h.slice(0, 7);
+        winner = h;
+      }
     }
-    expect(digits).not.toBe('');
+    expect(digits).toMatch(/^[0-9]{7}$/);
+    gitIn(repo, ['update-ref', 'refs/heads/main', winner]);
     const { id } = await saveLearningDraft(db, storePath, draft({ source_commit: digits }));
 
     const report = await runPromotion(db, storePath, opts({ dryRun: true }));
