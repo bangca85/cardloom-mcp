@@ -7,7 +7,7 @@ import matter from 'gray-matter';
 import { config } from '../config/env.js';
 import { getDatabase } from '../db/database.js';
 import { insertCardRelationsAndStacks, deleteCardRelationsAndStacks } from '../db/schema.js';
-import { reconcileIndex } from '../services/index-reconciler.js';
+import { reconcileIndex, buildCardRecord } from '../services/index-reconciler.js';
 import { updateCardStatus, renderCard, computeCardFlags } from '../services/card-service.js';
 import { computeTrust } from '../services/trust-service.js';
 import { computeGraph } from '../services/graph-service.js';
@@ -58,45 +58,17 @@ function reconcileSingleCard(idxDb: Database.Database, id: string, storeDir: str
   const parsed = matter(rawContent);
   const { card } = validateCardLenient(parsed.data);
 
-  const record = {
-    id,
-    type: card.type,
-    status: card.status,
-    title: card.title,
-    domain: card.domain ?? null,
-    stack: JSON.stringify(card.stack),
-    applies_to: JSON.stringify(card.applies_to),
-    task_type: card.task_type ?? null,
-    error_signature: card.error_signature ?? null,
-    scope: card.scope,
-    project: card.project ?? null,
-    version_range: card.version_range,
-    sensitivity: card.sensitivity,
-    supersedes: card.supersedes,
-    conflicts_with: JSON.stringify(card.conflicts_with),
-    source_commit: card.source_commit,
-    provenance: card.provenance,
-    verified_by: card.verified_by,
-    verification_method: card.verification_method,
-    last_verified: card.last_verified,
-    deprecation_reason: card.status === 'deprecated' ? card.deprecation_reason : null,
-    deprecated_at: card.status === 'deprecated' ? card.deprecated_at : null,
-    deprecated_by: card.status === 'deprecated' ? card.deprecated_by : null,
-    body: parsed.content,
-    created_at: fileMtime,
-    updated_at: fileMtime,
-    file_mtime: fileMtime,
-  };
+  const record = buildCardRecord(id, card, parsed.content, fileMtime);
 
   const insertOrReplace = idxDb.prepare(`
     INSERT INTO cards (
       id, type, status, title, domain, stack, applies_to, task_type, error_signature,
-      scope, project, version_range, sensitivity, supersedes, conflicts_with, source_commit, provenance,
+      scope, project, version_range, sensitivity, supersedes, conflicts_with, source_commit, source_repo, provenance,
       verified_by, verification_method, last_verified, deprecation_reason, deprecated_at, deprecated_by,
       body, created_at, updated_at, file_mtime
     ) VALUES (
       @id, @type, @status, @title, @domain, @stack, @applies_to, @task_type, @error_signature,
-      @scope, @project, @version_range, @sensitivity, @supersedes, @conflicts_with, @source_commit, @provenance,
+      @scope, @project, @version_range, @sensitivity, @supersedes, @conflicts_with, @source_commit, @source_repo, @provenance,
       @verified_by, @verification_method, @last_verified, @deprecation_reason, @deprecated_at, @deprecated_by,
       @body, @created_at, @updated_at, @file_mtime
     )
@@ -105,7 +77,7 @@ function reconcileSingleCard(idxDb: Database.Database, id: string, storeDir: str
       stack = excluded.stack, applies_to = excluded.applies_to, task_type = excluded.task_type,
       error_signature = excluded.error_signature, scope = excluded.scope, project = excluded.project, version_range = excluded.version_range,
       sensitivity = excluded.sensitivity, supersedes = excluded.supersedes, conflicts_with = excluded.conflicts_with,
-      source_commit = excluded.source_commit, provenance = excluded.provenance, verified_by = excluded.verified_by,
+      source_commit = excluded.source_commit, source_repo = excluded.source_repo, provenance = excluded.provenance, verified_by = excluded.verified_by,
       verification_method = excluded.verification_method, last_verified = excluded.last_verified,
       deprecation_reason = excluded.deprecation_reason, deprecated_at = excluded.deprecated_at,
       deprecated_by = excluded.deprecated_by, body = excluded.body, updated_at = excluded.updated_at,

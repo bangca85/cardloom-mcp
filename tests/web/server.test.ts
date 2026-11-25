@@ -306,6 +306,48 @@ Body D`);
     expect(stackNodes).not.toContain('card-A');
   });
 
+  it('reconcileSingleCard (GET /api/cards/:id) indexes source_repo and project, and renders source.repo from them', async () => {
+    fs.writeFileSync(
+      path.join(storePath, 'cards', 'pattern-web-sourced.md'),
+      `---
+title: Web Sourced
+type: pattern
+scope: project
+project: acme/billing-api
+applies_to: [api]
+stack: [typescript]
+version_range: '*'
+status: verified
+sensitivity: normal
+verified_by: human-reviewer
+verification_method: test
+last_verified: '2026-10-03T08:15:00Z'
+source_commit: '9f1c2ab0 (story 5.26)'
+source_repo: acme/billing
+provenance: test
+---
+Body.
+`,
+    );
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/cards/pattern-web-sourced`);
+    const json = (await res.json()) as any;
+    expect(json.source).toEqual({ repo: 'acme/billing', commit: '9f1c2ab', approved_at: '2026-10-03' });
+
+    const row = getDatabase(dbPath)
+      .prepare('SELECT source_repo, project FROM cards WHERE id = ?')
+      .get('pattern-web-sourced') as { source_repo: string | null; project: string | null };
+    expect(row).toEqual({ source_repo: 'acme/billing', project: 'acme/billing-api' });
+
+    // An edit on disk while the viewer runs: dropping source_repo must clear it too (update path, not just insert).
+    const file = path.join(storePath, 'cards', 'pattern-web-sourced.md');
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf-8').replace('source_repo: acme/billing\n', ''));
+    const later = new Date(Date.now() + 10000);
+    fs.utimesSync(file, later, later);
+    const res2 = await fetch(`http://127.0.0.1:${port}/api/cards/pattern-web-sourced`);
+    expect(((await res2.json()) as any).source.repo).toBe('api');
+  });
+
   it('reconcileSingleCard (GET /api/cards/:id) keeps card_relations in sync without a full reconcileIndex', async () => {
     const writeCard = (id: string, content: string) => {
       fs.writeFileSync(path.join(storePath, 'cards', `${id}.md`), content);

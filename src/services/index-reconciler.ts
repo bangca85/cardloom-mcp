@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { glob } from 'glob';
 import matter from 'gray-matter';
-import { validateCardLenient } from '../types/card-schema.js';
+import { validateCardLenient, type Card } from '../types/card-schema.js';
 import { ValidationError } from '../types/errors.js';
 import { foldAllEvents } from './event-log-service.js';
 import { insertCardRelationsAndStacks, deleteCardRelationsAndStacks } from '../db/schema.js';
@@ -11,6 +11,43 @@ import { insertCardRelationsAndStacks, deleteCardRelationsAndStacks } from '../d
 interface DbCardRecord {
   id: string;
   file_mtime: string;
+}
+
+/**
+ * The `cards` row for one card file, shared by every path that indexes a card from disk (the reconciler and
+ * the web viewer's single-card sync), so no two places keep their own column list.
+ */
+export function buildCardRecord(id: string, card: Card, body: string, fileMtime: string) {
+  return {
+    id,
+    type: card.type,
+    status: card.status,
+    title: card.title,
+    domain: card.domain ?? null,
+    stack: JSON.stringify(card.stack),
+    applies_to: JSON.stringify(card.applies_to),
+    task_type: card.task_type ?? null,
+    error_signature: card.error_signature ?? null,
+    scope: card.scope,
+    project: card.project ?? null,
+    version_range: card.version_range,
+    sensitivity: card.sensitivity,
+    supersedes: card.supersedes,
+    conflicts_with: JSON.stringify(card.conflicts_with),
+    source_commit: card.source_commit,
+    source_repo: card.source_repo ?? null,
+    provenance: card.provenance,
+    verified_by: card.verified_by,
+    verification_method: card.verification_method,
+    last_verified: card.last_verified,
+    deprecation_reason: card.status === 'deprecated' ? card.deprecation_reason : null,
+    deprecated_at: card.status === 'deprecated' ? card.deprecated_at : null,
+    deprecated_by: card.status === 'deprecated' ? card.deprecated_by : null,
+    body,
+    created_at: fileMtime,
+    updated_at: fileMtime,
+    file_mtime: fileMtime,
+  };
 }
 
 export async function reconcileIndex(db: Database.Database, knowledgeStorePath: string): Promise<void> {
@@ -95,36 +132,7 @@ export async function reconcileIndex(db: Database.Database, knowledgeStorePath: 
 
       diskIds.add(id);
 
-      const record = {
-        id,
-        type: card.type,
-        status: card.status,
-        title: card.title,
-        domain: card.domain ?? null,
-        stack: JSON.stringify(card.stack),
-        applies_to: JSON.stringify(card.applies_to),
-        task_type: card.task_type ?? null,
-        error_signature: card.error_signature ?? null,
-        scope: card.scope,
-        project: card.project ?? null,
-        version_range: card.version_range,
-        sensitivity: card.sensitivity,
-        supersedes: card.supersedes,
-        conflicts_with: JSON.stringify(card.conflicts_with),
-        source_commit: card.source_commit,
-        source_repo: card.source_repo ?? null,
-        provenance: card.provenance,
-        verified_by: card.verified_by,
-        verification_method: card.verification_method,
-        last_verified: card.last_verified,
-        deprecation_reason: card.status === 'deprecated' ? card.deprecation_reason : null,
-        deprecated_at: card.status === 'deprecated' ? card.deprecated_at : null,
-        deprecated_by: card.status === 'deprecated' ? card.deprecated_by : null,
-        body: parsed.content,
-        created_at: fileMtime,
-        updated_at: fileMtime,
-        file_mtime: fileMtime,
-      };
+      const record = buildCardRecord(id, card, parsed.content, fileMtime);
 
       if (dbMtime === undefined) {
         insertStmt.run(record);
