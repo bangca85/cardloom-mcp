@@ -339,6 +339,56 @@ Workflow for a brand-new repo:
 4. Point your agent/client at it so `search_knowledge` calls include `context: {stack, versions, project, aliases}`
    read from that file.
 
+## Session context
+
+`npx cardloom-mcp context` prints a short list of the verified cards that matter for the project you are
+standing in, so an agent starts a session already knowing them. It is meant for a Claude Code `SessionStart`
+hook, whose output is added to the session. It is **opt-in**: nothing registers it unless you do.
+
+What it prints (nothing else, and nothing at all when the list would be empty):
+
+```text
+# Cardloom: verified cards for acme/billing-api
+- Retry payments at most twice (pattern-payment-retry): Retry a payment request at most twice, then surface the error.
+- Lock before writing (gotcha-write-lock): Take the write lock before touching the index.
+Use search_knowledge/get_card for details.
+```
+
+- **Which cards:** `verified` and `sensitivity: normal` only, and only cards of this project (the `project:` key of
+  `.knowledge-map.yaml` in the current directory, or one of its `aliases:`), global cards, and stack-scoped cards
+  whose stack intersects the map's `stack:`. Drafts, deprecated, restricted, stale and needs-review cards are never
+  printed. Without a `.knowledge-map.yaml` (and without `--project <key>`, which replaces the map) it prints nothing.
+- **Order and size:** highest trust first, then most used, then id. At most 5 cards (`--max-cards`) and an
+  estimated 800 tokens in total (`--max-estimated-tokens`; the figure is an estimate, characters divided by 4,
+  not a tokenizer count). Each summary is the first sentence of the card, at most 160 characters. Cards are dropped
+  from the end until the output fits; if not even one fits, nothing is printed.
+- **Read-only:** it opens the existing index (`INDEX_DB_PATH`, `~/.cardloom/index.db` by default) for reading and
+  never builds, migrates or creates anything, not even the `-wal` files of a WAL index. If the index is missing,
+  unreadable or from an older version, or the store is empty, it prints nothing and exits 0, so a session never breaks.
+  Start the server once (or run `npm run rebuild-index`) to have an index.
+
+Register it with one command (it prints the plan; add `--yes` to apply):
+
+```bash
+npx cardloom-mcp install --hooks          # plan: shows the change to ~/.claude/settings.json
+npx cardloom-mcp install --hooks --yes    # applies it
+```
+
+`--hooks` alone changes only `~/.claude/settings.json` (Claude Code; codex and gemini have no hook here). The file
+is parsed strictly and an invalid one is refused and left untouched; everything else in it, and its indentation, are
+kept, and running it again does not add a second entry. To use it together with the normal setup, add `--agent`
+(for example `install --agent claude --hooks --yes`). To do it by hand, add this to `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "npx -y cardloom-mcp context" }] }
+    ]
+  }
+}
+```
+
 ## Enforcing usage (CLAUDE.md / AGENTS.md / GEMINI.md)
 
 Nothing forces the agent to call these tools — MCP tools only fire when the model decides to. To have
@@ -861,6 +911,7 @@ npm run upgrade-check -- --to nextjs@15.0.0   # read-only: cards affected by a v
 npm run report          # read-only: what the store did in the last 7 days (--days <n>, --json)
 npm run reconfirm -- --stale   # list stale verified cards; --confirm <id>@<hash> re-confirms them
 npm run gaps            # read-only: how searches ended and what found no answer (needs CARDLOOM_TELEMETRY=local, --json)
+npm run context         # read-only: verified cards of the current project, for a SessionStart hook (see Session context)
 npm run web             # local web viewer (List / Graph view) on http://127.0.0.1:3334
 npm run promote-merged  # list or verify drafts whose source commit was merged
 docker compose build && docker compose run --rm -i cardloom-mcp

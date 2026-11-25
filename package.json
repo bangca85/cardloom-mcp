@@ -22,6 +22,7 @@
     "report": "node dist/cli/report.js",
     "reconfirm": "node dist/cli/reconfirm.js",
     "gaps": "node dist/cli/gaps.js",
+    "context": "node dist/cli/context.js",
     "promote-merged": "node dist/cli/promote-merged.js",
     "test": "vitest run",
     "test:watch": "vitest",

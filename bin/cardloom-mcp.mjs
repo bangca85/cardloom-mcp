@@ -13,12 +13,13 @@ const USAGE = [
   '       cardloom-mcp reconfirm      re-confirm old verified cards (--stale lists them, --confirm <id>@<hash> applies)',
   '       cardloom-mcp gaps           show how searches ended and what found no answer (needs CARDLOOM_TELEMETRY=local; --json)',
   '       cardloom-mcp upgrade-check  list cards affected by a version change (--to <tech>@<version>)',
-  '       cardloom-mcp install        register the server and instructions with the agent CLIs found (plan; --yes applies)',
+  '       cardloom-mcp context        print the verified cards of this project for a SessionStart hook (--project <key>, --max-cards, --max-estimated-tokens)',
+  '       cardloom-mcp install        register the server and instructions with the agent CLIs found (plan; --yes applies; --hooks adds the SessionStart hook)',
 ].join('\n');
 
 // Unknown arguments must not start the server (or create ~/.cardloom): print usage to stderr only.
 const arg = process.argv[2];
-if (arg !== undefined && arg !== 'doctor' && arg !== 'triage' && arg !== 'report' && arg !== 'upgrade-check' && arg !== 'reconfirm' && arg !== 'gaps' && arg !== 'install') {
+if (arg !== undefined && arg !== 'doctor' && arg !== 'triage' && arg !== 'report' && arg !== 'upgrade-check' && arg !== 'reconfirm' && arg !== 'gaps' && arg !== 'context' && arg !== 'install') {
   console.error(USAGE);
   process.exit(arg === '--help' || arg === '-h' ? 0 : 1);
 }
@@ -139,6 +140,24 @@ if (arg === 'install') {
     } catch (err) {
       console.error('[gaps] failed:', err);
       process.exitCode = 1;
+    }
+  } else if (arg === 'context') {
+    // A SessionStart hook runs this: it only reads the existing index and prints nothing when anything is missing.
+    try {
+      const { runContext, parseContextArgs, CONTEXT_USAGE } = await import('../dist/cli/context.js');
+      const args = parseContextArgs(process.argv.slice(3));
+      if (args === null) {
+        console.error(CONTEXT_USAGE);
+        process.exitCode = 1;
+      } else if (args.help) {
+        console.log(CONTEXT_USAGE);
+      } else {
+        const { stdout, exitCode } = await runContext(process.env, process.cwd(), args);
+        if (stdout !== '') console.log(stdout);
+        process.exitCode = exitCode;
+      }
+    } catch {
+      // a hook never breaks the session
     }
   } else if (arg === 'upgrade-check') {
     try {

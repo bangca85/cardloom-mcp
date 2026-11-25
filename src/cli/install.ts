@@ -21,7 +21,7 @@ export interface CommandRunner {
 
 export type EntryState = 'absent' | 'ours' | 'foreign';
 
-type InstallFs = Pick<
+export type InstallFs = Pick<
   typeof import('node:fs'),
   'readFileSync' | 'writeFileSync' | 'mkdirSync' | 'existsSync' | 'renameSync' | 'realpathSync' | 'rmSync' | 'mkdtempSync' | 'statSync' | 'chmodSync'
 >;
@@ -219,6 +219,8 @@ export interface InstallEnv {
 export interface InstallOptions {
   agents?: AgentId[];
   yes: boolean;
+  /** Also register the SessionStart hook. Without `agents` it is all that runs (the agent flow is skipped). */
+  hooks?: boolean;
 }
 
 function instructionsPath(agent: AgentId, env: InstallEnv): string {
@@ -255,7 +257,7 @@ function planInstructions(file: string, fs: InstallFs): InstructionsPlan {
  * target (dotfile managers) stays a symlink: the rename lands on the file it points to. An existing file's
  * permissions are kept. The temp file is removed on failure.
  */
-function writeFileAtomically(file: string, content: string, fs: InstallFs): void {
+export function writeFileAtomically(file: string, content: string, fs: InstallFs): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const exists = fs.existsSync(file);
   const target = exists ? fs.realpathSync(file) : file;
@@ -351,6 +353,109 @@ async function installAgent(
   }
 }
 
+
+// ---------------------------------------------------------------- SessionStart hook (Claude Code only)
+
+const HOOK_COMMAND = `npx -y ${PACKAGE} context`;
+const HOOK_ENTRY = { type: 'command', command: HOOK_COMMAND };
+// Our entry is recognised by the command, so a hand-written one (another path, extra flags) is kept as it is.
+const HOOK_MARKER = `${PACKAGE} context`;
+
+export type HookPlan =
+  | { kind: 'write'; verb: 'create' | 'update'; content: string }
+  | { kind: 'current' }
+  | { kind: 'invalid'; message: string };
+
+function settingsPath(env: InstallEnv): string {
+  return path.join(env.home, '.claude', 'settings.json');
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** Tab, or the width of the first indented line (2 spaces when the file has none, e.g. one line). */
+function detectIndent(text: string): string | number {
+  const m = /\n([ \t]+)\S/.exec(text);
+  if (m === null) return 2;
+  const lead = m[1] ?? '';
+  return lead.startsWith('\t') ? '\t' : Math.min(lead.length, 8);
+}
+
+function hasOurHook(groups: unknown[]): boolean {
+  return groups.some(
+    (g) =>
+      isRecord(g) &&
+      Array.isArray(g['hooks']) &&
+      g['hooks'].some((h) => isRecord(h) && typeof h['command'] === 'string' && h['command'].includes(HOOK_MARKER)),
+  );
+}
+
+/**
+ * What registering the hook does to `~/.claude/settings.json`. The file is parsed strictly; everything in it
+ * is kept (the text is re-serialised with the file's own indentation, line endings and trailing newline) and one
+ * `{ hooks: [entry] }` group is appended to `hooks.SessionStart`. Reads only: nothing is created or written here.
+ */
+export function planHooks(file: string, fs: InstallFs): HookPlan {
+  const exists = fs.existsSync(file);
+  const text = exists ? fs.readFileSync(file, 'utf8') : '';
+  let doc: Record<string, unknown> = {};
+  if (exists) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch (err) {
+      return { kind: 'invalid', message: `${file} is not valid JSON (${errorMessage(err)}); fix it and run install again (file left untouched)` };
+    }
+    if (!isRecord(parsed)) return { kind: 'invalid', message: `${file} is not a JSON object; fix it and run install again (file left untouched)` };
+    doc = parsed;
+  }
+  const hooks = doc['hooks'];
+  if (hooks !== undefined && !isRecord(hooks)) {
+    return { kind: 'invalid', message: `"hooks" in ${file} is not an object; fix it and run install again (file left untouched)` };
+  }
+  const sessionStart = hooks?.['SessionStart'];
+  if (sessionStart !== undefined && !Array.isArray(sessionStart)) {
+    return { kind: 'invalid', message: `"hooks.SessionStart" in ${file} is not a list; fix it and run install again (file left untouched)` };
+  }
+  if (sessionStart !== undefined && hasOurHook(sessionStart)) return { kind: 'current' };
+
+  const next = {
+    ...doc,
+    hooks: { ...(hooks ?? {}), SessionStart: [...(sessionStart ?? []), { hooks: [HOOK_ENTRY] }] },
+  };
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  const trailing = !exists || /\n$/.test(text) ? eol : '';
+  const content = JSON.stringify(next, null, detectIndent(text)).replace(/\n/g, eol) + trailing;
+  return { kind: 'write', verb: exists ? 'update' : 'create', content };
+}
+
+const HOOKS_NOT_FOR = 'hooks are Claude Code only: nothing is registered for codex or gemini';
+
+function installHooks(env: InstallEnv, yes: boolean, fs: InstallFs): AgentOutcome {
+  const file = settingsPath(env);
+  const lines: string[] = ['SessionStart hook (claude)'];
+  const say = (text: string): number => lines.push(`  ${text}`);
+  try {
+    const plan = planHooks(file, fs);
+    if (plan.kind === 'invalid') {
+      say(plan.message);
+      return { lines, ok: false };
+    }
+    if (plan.kind === 'current') {
+      say(`hook already registered: ${file}`);
+    } else if (!yes) {
+      say(`would add the SessionStart hook to ${file}${plan.verb === 'create' ? ' (creating it)' : ''}: ${HOOK_COMMAND}`);
+    } else {
+      writeFileAtomically(file, plan.content, fs);
+      say(`${plan.verb === 'create' ? 'created' : 'updated'} ${file}: added the SessionStart hook ${HOOK_COMMAND}`);
+    }
+    say(HOOKS_NOT_FOR);
+    return { lines, ok: true };
+  } catch (err) {
+    say(`failed: ${errorMessage(err)}`);
+    return { lines, ok: false };
+  }
+}
+
 const RERUN = 'npx -y cardloom-mcp install --yes';
 
 export async function runInstall(
@@ -359,68 +464,94 @@ export async function runInstall(
   runner: CommandRunner,
   fs: InstallFs,
 ): Promise<{ lines: string[]; exitCode: 0 | 1 }> {
+  // `--hooks` alone is the hook and nothing else; with `--agent` it comes on top of those agents' setup.
+  const hooksOnly = opts.hooks === true && opts.agents === undefined;
   const wanted = opts.agents ?? AGENT_IDS;
-  const found = AGENT_IDS.filter((a) => wanted.includes(a) && findOnPath(a, env.pathDirs, fs));
-  if (found.length === 0) {
+  const found = hooksOnly ? [] : AGENT_IDS.filter((a) => wanted.includes(a) && findOnPath(a, env.pathDirs, fs));
+  if (!hooksOnly && found.length === 0) {
     const looked = AGENT_IDS.filter((a) => wanted.includes(a));
     return { lines: [`No supported agent CLI found (looked for ${looked.join(', ')}).`], exitCode: 1 };
   }
 
-  const lines: string[] = [opts.yes ? `Installing cardloom-mcp for ${found.join(', ')}.` : `Plan for ${found.join(', ')} (nothing is changed).`, ''];
-  const failedAgents: AgentId[] = [];
-  // Detection runs from a fresh empty directory: `claude mcp get` and `gemini mcp list` then show only user-scope
-  // entries, never a local or project one keyed on the directory they happen to run in.
-  let detectCwd: string;
-  try {
-    detectCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cardloom-install-'));
-  } catch (err) {
-    return { lines: [`Cannot create a temporary directory to check the agents from: ${errorMessage(err)}`], exitCode: 1 };
-  }
-  try {
-    for (const agent of found) {
-      const outcome = await installAgent(agent, env, opts.yes, runner, fs, detectCwd);
-      lines.push(...outcome.lines, '');
-      if (!outcome.ok) failedAgents.push(agent);
-    }
-  } finally {
+  const what = hooksOnly ? 'the SessionStart hook' : opts.hooks ? `${found.join(', ')} and the SessionStart hook` : found.join(', ');
+  const lines: string[] = [opts.yes ? `Installing cardloom-mcp for ${what}.` : `Plan for ${what} (nothing is changed).`, ''];
+  const failedAgents: string[] = [];
+  if (found.length > 0) {
+    // Detection runs from a fresh empty directory: `claude mcp get` and `gemini mcp list` then show only user-scope
+    // entries, never a local or project one keyed on the directory they happen to run in.
+    let detectCwd: string;
     try {
-      fs.rmSync(detectCwd, { recursive: true, force: true });
-    } catch {
-      // best effort: an empty directory in the temp folder is harmless
+      detectCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cardloom-install-'));
+    } catch (err) {
+      return { lines: [`Cannot create a temporary directory to check the agents from: ${errorMessage(err)}`], exitCode: 1 };
     }
+    try {
+      for (const agent of found) {
+        const outcome = await installAgent(agent, env, opts.yes, runner, fs, detectCwd);
+        lines.push(...outcome.lines, '');
+        if (!outcome.ok) failedAgents.push(agent);
+      }
+    } finally {
+      try {
+        fs.rmSync(detectCwd, { recursive: true, force: true });
+      } catch {
+        // best effort: an empty directory in the temp folder is harmless
+      }
+    }
+  }
+  let hookFailed = false;
+  if (opts.hooks) {
+    const outcome = installHooks(env, opts.yes, fs);
+    lines.push(...outcome.lines, '');
+    hookFailed = !outcome.ok;
   }
 
+  const agentFlags = (opts.agents ?? []).map((a) => ` --agent ${a}`).join('');
+  const rerun = opts.hooks ? `npx -y cardloom-mcp install${agentFlags} --hooks --yes` : RERUN;
   if (!opts.yes) {
-    lines.push(`Nothing changed. Run \`${RERUN}\` to apply this plan.`);
-    return { lines, exitCode: 0 };
+    lines.push(`Nothing changed. Run \`${rerun}\` to apply this plan.`);
+    // An unusable settings file is a problem to fix, not just a plan: exit 1 even without --yes.
+    return { lines, exitCode: hookFailed ? 1 : 0 };
   }
+  if (hookFailed) failedAgents.push('hook');
   if (failedAgents.length > 0) {
+    const total = found.length + (opts.hooks ? 1 : 0);
     lines.push(
-      `${failedAgents.length} of ${found.length} failed (${failedAgents.join(', ')}). Fix the problem above and run \`${RERUN}\` again: agents that are already set up are not changed twice.`,
+      `${failedAgents.length} of ${total} failed (${failedAgents.join(', ')}). Fix the problem above and run \`${rerun}\` again: agents that are already set up are not changed twice.`,
     );
     return { lines, exitCode: 1 };
   }
-  lines.push('Done. Restart your agent so it picks up the server and the instructions.');
+  lines.push(hooksOnly ? 'Done. Restart Claude Code so it picks up the hook.' : 'Done. Restart your agent so it picks up the server and the instructions.');
   return { lines, exitCode: 0 };
 }
 
-export const INSTALL_USAGE = 'Usage: install [--yes] [--agent claude|codex|gemini]...';
+export const INSTALL_USAGE = [
+  'Usage: install [--yes] [--agent claude|codex|gemini]... [--hooks]',
+  '',
+  '  Without --yes it only prints the plan. --agent limits which agent CLIs are set up (default: all found).',
+  '  --hooks  register the SessionStart hook (`npx -y cardloom-mcp context`) in ~/.claude/settings.json, so Claude',
+  '           Code starts each session with the verified cards of the project. Claude Code only; off unless given.',
+  '           Alone it does only that (no MCP registration, no instruction files); with --agent it comes on top',
+  '           of those agents\' setup.',
+].join('\n');
 
 /** `help` is set only when `--help` / `-h` was given: the caller prints the usage and exits 0. */
-export function parseInstallArgs(argv: string[]): { yes: boolean; agents?: AgentId[]; help?: true } | null {
+export function parseInstallArgs(argv: string[]): { yes: boolean; agents?: AgentId[]; hooks?: true; help?: true } | null {
   let yes = false;
+  let hooks = false;
   let agents: AgentId[] | undefined;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--help' || a === '-h') return { yes, agents, help: true };
     if (a === '--yes') yes = true;
+    else if (a === '--hooks') hooks = true;
     else if (a === '--agent') {
       const id = argv[++i];
       if (id === undefined || !(AGENT_IDS as readonly string[]).includes(id)) return null;
       (agents ??= []).push(id as AgentId);
     } else return null;
   }
-  return { yes, agents };
+  return hooks ? { yes, agents, hooks: true } : { yes, agents };
 }
 
 /** Runs a command without a shell; an unstartable command is exit 127. */

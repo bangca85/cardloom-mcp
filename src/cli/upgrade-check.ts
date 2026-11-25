@@ -3,14 +3,14 @@ import path from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
 import type Database from 'better-sqlite3';
 import { validRange } from 'semver';
-import { parse as parseYaml } from 'yaml';
 import { config } from '../config/env.js';
 import { initializeSchema } from '../db/schema.js';
 import { cardDriftsFor } from '../services/search-service.js';
+import { KNOWLEDGE_MAP_FILE, normalizeTech, readKnowledgeMapDocument, splitTechVersion } from '../utils/knowledge-map.js';
 import { buildFreshIndex } from './benchmark.js';
 
 const LIST_CAP = 20;
-const MAP_FILE = '.knowledge-map.yaml';
+const MAP_FILE = KNOWLEDGE_MAP_FILE;
 
 export interface UpgradeCheck {
   tech: string;
@@ -23,18 +23,6 @@ export interface UpgradeCheck {
 
 /** A user-facing failure (bad map, unknown tech): the message is printed as is, exit 1. */
 export class UpgradeCheckError extends Error {}
-
-function normalizeTech(tech: string): string {
-  return tech.trim().toLowerCase().replace(/\s+/g, '-');
-}
-
-/** Splits `tech@version` at the last `@` (so a scoped name like `@scope/pkg@1` keeps its first `@`). */
-function splitTechVersion(entry: string): { tech: string; version: string | undefined } {
-  const at = entry.lastIndexOf('@');
-  if (at <= 0) return { tech: normalizeTech(entry), version: undefined };
-  const version = entry.slice(at + 1).trim();
-  return { tech: normalizeTech(entry.slice(0, at)), version: version === '' ? undefined : version };
-}
 
 interface CardLine {
   id: string;
@@ -118,22 +106,12 @@ export function runUpgradeCheck(db: Database.Database, map: { stack: string[] },
 
 /** Reads the `stack` list of `.knowledge-map.yaml` in `cwd`. Throws an `UpgradeCheckError` with the message to print. */
 export function loadKnowledgeMap(cwd: string): { stack: string[] } {
-  const file = path.join(cwd, MAP_FILE);
-  let text: string;
-  try {
-    text = fs.readFileSync(file, 'utf8');
-  } catch {
-    throw new UpgradeCheckError(`no ${MAP_FILE} in ${cwd}`);
-  }
-  let doc: unknown;
-  try {
-    doc = parseYaml(text);
-  } catch (err) {
-    throw new UpgradeCheckError(`could not parse ${file}: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`);
-  }
+  const read = readKnowledgeMapDocument(cwd);
+  if (!read.ok) throw new UpgradeCheckError(read.message);
+  const doc = read.doc;
   const stack = typeof doc === 'object' && doc !== null ? (doc as { stack?: unknown }).stack : undefined;
   if (!Array.isArray(stack) || !stack.every((s) => typeof s === 'string' || typeof s === 'number')) {
-    throw new UpgradeCheckError(`${file} has no "stack" list of tech@version entries`);
+    throw new UpgradeCheckError(`${path.join(cwd, MAP_FILE)} has no "stack" list of tech@version entries`);
   }
   return { stack: stack.map(String) };
 }

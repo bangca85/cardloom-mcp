@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- New `context` command (owner decision D4; `npx cardloom-mcp context [--project <key>] [--max-cards 5]
+  [--max-estimated-tokens 800]`, also `npm run context`): prints a bounded list of the verified, normal-sensitivity cards
+  of the current project, global cards and stack-scoped cards that intersect the stack, for a Claude Code `SessionStart`
+  hook. Project, aliases and stack come from `.knowledge-map.yaml` (`project:` or legacy `repo:`, `aliases:`, `stack:`),
+  or `--project`. Ranked by trust, then usage, then id; drafts, deprecated, restricted, stale and needs-review cards are
+  never printed; each line is `- <title> (<id>): <first sentence, at most 160 characters>`; the output is cut to the card
+  limit and then to the estimated-token budget (characters / 4). Read-only: it opens the existing index without writing or
+  creating anything (not even `-wal`/`-shm` files) and prints nothing, exit 0, when the index is missing, unreadable or
+  old, the store is empty, nothing is eligible, or there is no project.
+- `install --hooks` registers that hook in `~/.claude/settings.json` (off unless given; plan without `--yes`, like the rest
+  of `install`). Alone it touches nothing but that file; with `--agent` it also runs the setup of those agents. The file is
+  parsed strictly (invalid JSON or an unexpected shape is refused, exit 1, nothing changed), the entry is recognised by a
+  command containing `cardloom-mcp context`, indentation, line endings, the trailing newline and the file mode are kept,
+  a symlinked file stays a symlink, and a second run adds nothing. Written through the same temp-file-and-rename helper as the instruction files.
 - New opt-in local telemetry and `gaps` command (owner decision D3, AD-3/AD-4 amendment 2026-11-25). With
   `CARDLOOM_TELEMETRY=local`, each `search_knowledge` call appends one line to `telemetry.jsonl` beside the index (or at the absolute `CARDLOOM_TELEMETRY_PATH`; mode 0600):
   time (UTC), result count, outcome (`answered`, `related_only`, `empty`) and latency in ms. Off by default: with the

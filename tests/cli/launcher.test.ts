@@ -46,6 +46,7 @@ describe.skipIf(!built)('launcher usage and install', () => {
     expect(res.stderr).toContain('cardloom-mcp upgrade-check');
     expect(res.stderr).toContain('cardloom-mcp reconfirm');
     expect(res.stderr).toContain('cardloom-mcp gaps');
+    expect(res.stderr).toContain('cardloom-mcp context');
     expect(readdirSync(home)).toEqual([]);
   });
 
@@ -87,6 +88,8 @@ describe.skipIf(!built)('launcher usage and install', () => {
     ['reconfirm', '-h', 'Usage: reconfirm'],
     ['gaps', '--help', 'Usage: gaps'],
     ['gaps', '-h', 'Usage: gaps'],
+    ['context', '--help', 'Usage: context'],
+    ['context', '-h', 'Usage: context'],
   ])('%s %s prints that subcommand usage to stdout and exits 0', (sub, flag, usage) => {
     const res = launch([sub as string, flag as string], [emptyBin]);
     expect(res.code).toBe(0);
@@ -167,6 +170,54 @@ describe.skipIf(!built)('launcher usage and install', () => {
     expect(res.stdout).toBe('No stale cards.\n');
     expect(res.stderr).toBe('');
     expect(readdirSync(home)).toEqual([]);
+  });
+
+  it.each([
+    [['context', '--bogus']],
+    [['context', 'extra']],
+    [['context', '--project']],
+    [['context', '--project', 'not a key!']],
+    [['context', '--max-cards', '0']],
+    [['context', '--max-estimated-tokens', 'x']],
+  ])('%j prints the context usage to stderr, exits 1 and creates nothing', (args) => {
+    const res = launch(args as string[], [emptyBin]);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toBe('');
+    expect(res.stderr).toContain('Usage: context');
+    expect(readdirSync(home)).toEqual([]);
+  });
+
+  it('context on a home with no index prints nothing, exits 0 and creates nothing (not even ~/.cardloom)', () => {
+    const cwd = join(sandbox, 'project');
+    mkdirSync(cwd, { recursive: true });
+    writeFileSync(join(cwd, '.knowledge-map.yaml'), 'project: acme/api\n');
+    const res = spawnSync(process.execPath, [launcher, 'context'], {
+      env: { PATH: emptyBin, HOME: home },
+      cwd,
+      encoding: 'utf8',
+      timeout: 30_000,
+    });
+    expect(res.status).toBe(0);
+    expect(res.stdout).toBe('');
+    expect(res.stderr).toBe('');
+    expect(readdirSync(home)).toEqual([]);
+  });
+
+  it('install --hooks writes only ~/.claude/settings.json of the temp home (and only with --yes)', () => {
+    const hookHome = mkdtempSync(join(sandbox, 'hook-home-'));
+    const run = (args: string[]) =>
+      spawnSync(process.execPath, [launcher, ...args], { env: { PATH: emptyBin, HOME: hookHome }, encoding: 'utf8', timeout: 30_000 });
+    const plan = run(['install', '--hooks']);
+    expect(plan.status).toBe(0);
+    expect(plan.stdout).toContain('npx -y cardloom-mcp context');
+    expect(readdirSync(hookHome)).toEqual([]);
+    const applied = run(['install', '--hooks', '--yes']);
+    expect(applied.status).toBe(0);
+    expect(readdirSync(hookHome)).toEqual(['.claude']);
+    expect(readdirSync(join(hookHome, '.claude'))).toEqual(['settings.json']);
+    expect(JSON.parse(readFileSync(join(hookHome, '.claude', 'settings.json'), 'utf8'))).toEqual({
+      hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'npx -y cardloom-mcp context' }] }] },
+    });
   });
 
   it('install with bad arguments prints the install usage and exits 1', () => {

@@ -1,7 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export function generateDummyCards(count: number, outputDir: string): void {
+function scopeLines(i: number, projects: string[] | undefined): string[] {
+  if (projects === undefined || projects.length === 0) return ['scope: project'];
+  if (i % 10 === 0) return ['scope: global'];
+  return ['scope: project', `project: ${projects[i % projects.length]}`];
+}
+
+/**
+ * `opts.projects`: cards are spread over these project keys (`scope: project` + `project:`), and every tenth card
+ * is `scope: global` instead; the default keeps the keyless project-scoped cards of the graph benchmark.
+ */
+export function generateDummyCards(count: number, outputDir: string, opts: { projects?: string[] } = {}): void {
   fs.mkdirSync(outputDir, { recursive: true });
   const cardsDir = path.join(outputDir, 'cards');
   fs.mkdirSync(cardsDir, { recursive: true });
@@ -29,7 +39,7 @@ export function generateDummyCards(count: number, outputDir: string): void {
       '---',
       `title: Dummy Card ${i}`,
       `type: ${cardType}`,
-      `scope: project`,
+      ...scopeLines(i, opts.projects),
       `applies_to: [api]`,
       `stack: [${cardStack.join(', ')}]`,
       `version_range: '*'`,
