@@ -232,6 +232,29 @@ describe('runDoctor review stats', () => {
     expect(report.review.humanApprovalRate).toBe(1);
   });
 
+  it('keeps a re-confirmed auto-promoted card in merge promotion and a re-confirmed human approval with humans', async () => {
+    writeAged(
+      tmp,
+      'pattern-g.md',
+      cardFile({
+        title: 'G',
+        status: 'verified',
+        verifiedBy: 'release-bot',
+        method: 'reconfirmed:merged:acme/app@abc1234 (pr #1 2026-11-01)',
+      }),
+      5,
+    );
+    writeAged(
+      tmp,
+      'pattern-h.md',
+      cardFile({ title: 'H', status: 'verified', verifiedBy: 'alice', method: 'reconfirmed:chat-approval' }),
+      5,
+    );
+    const report = await runDoctor(tmp, path.join(tmp, 'index.db'), NOW);
+    expect(report.review.approvedByMergePromotion).toBe(1);
+    expect(report.review.approvedByHuman).toBe(1);
+  });
+
   it('reports no drafts and a null approval rate for an empty store', async () => {
     const report = await runDoctor(tmp, path.join(tmp, 'index.db'), NOW);
     expect(report.review).toEqual({

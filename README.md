@@ -551,7 +551,7 @@ a human, by merge promotion, rejected, and retired before review, and the human 
 human approved or rejected; merge promotion and retired drafts are listed beside it, not in it). A card counts
 as merge promotion only when its `verification_method` is exactly what `promote-merged` writes in `auto` mode
 (`merged:<repo>@<sha> (<via> <date>)`); the same evidence with `+chat-approval` after it, which is what you get
-when you approve a candidate in chat, counts as a human approval. A draft's
+when you approve a candidate in chat, counts as a human approval. `reconfirm` does not change who first approved a card, so a re-confirmed auto-promoted card still counts as merge promotion. A draft's
 age is counted from the commit that added the card when the store is a git repository, otherwise from the
 card file's modification time.
 
@@ -944,11 +944,12 @@ cardloom adds one: agents only save drafts, a human approves them by default, an
 cards. Cards are markdown files in a git repository you own, and search runs locally without an LLM call.
 Drafts, retired and restricted cards are filtered out unless you ask for them, and are labelled when returned.
 Old cards are flagged `stale`, and `get_card` reports when a card has been replaced.
-`upgrade-check` lists the cards that stop or start applying when a dependency version changes, and `report` shows what
-the store did in recent days. A human can re-confirm old cards in bulk with `reconfirm`, without re-reviewing each one from
-scratch. An opt-in `SessionStart` hook can print a few verified cards at the start of a session.
-[`tests/integration/trust-guarantees.test.ts`](tests/integration/trust-guarantees.test.ts) checks these
-behaviours on the JSON the server returns. It does not test whether an agent uses them well.
+[`tests/integration/trust-guarantees.test.ts`](tests/integration/trust-guarantees.test.ts) checks the search and
+`get_card` behaviours above on the JSON the server returns. It does not test whether an agent uses them well.
+
+Around that, `upgrade-check` lists the cards that stop or start applying when a dependency version changes, and `report`
+shows what the store did in recent days. A human can re-confirm old cards in bulk with `reconfirm`, without re-reviewing
+each one from scratch. An opt-in `SessionStart` hook can print a few verified cards at the start of a session.
 
 Another tool fits better in two cases. Use mem0 or claude-mem if you want memory with no review step. Use a
 plain `CLAUDE.md` if you have one small repository.

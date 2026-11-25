@@ -21,3 +21,25 @@ describe('README claims', () => {
     },
   );
 });
+
+describe('README FAQ attribution', () => {
+  const paragraphs = readme.split(/\n\s*\n/);
+
+  it('does not credit trust-guarantees with upgrade-check, reconfirm, report or the SessionStart hook', () => {
+    const linked = paragraphs.filter((p) => p.includes('tests/integration/trust-guarantees.test.ts'));
+    expect(linked.length).toBeGreaterThan(0);
+    for (const p of linked) {
+      expect(p).not.toMatch(/upgrade-check/);
+      expect(p).not.toMatch(/reconfirm/i);
+      expect(p).not.toMatch(/\breport\b/);
+      expect(p).not.toMatch(/SessionStart/);
+    }
+  });
+
+  it('keeps the FAQ under 220 words', () => {
+    const start = readme.indexOf('## How is cardloom different from other agent memory tools?');
+    const end = readme.indexOf('\n## ', start + 1);
+    const words = readme.slice(start, end).split(/\s+/).filter(Boolean).length;
+    expect(words).toBeLessThan(220);
+  });
+});

@@ -39,6 +39,14 @@ describe('isMergePromotion', () => {
     expect(isMergePromotion('merged:acme/app@abc1234 (pr #1 merged) +chat-approval')).toBe(false);
   });
 
+  it('ignores the reconfirmed: prefix, so a re-confirmed auto-promoted card is still merge promotion', () => {
+    expect(isMergePromotion('reconfirmed:merged:acme/app@abc1234 (pr #1 2026-11-01)')).toBe(true);
+    expect(isMergePromotion('reconfirmed:reconfirmed:merged:acme/app@abc1234 (pr #1 2026-11-01)')).toBe(true);
+    expect(isMergePromotion('reconfirmed:merged:acme/app@abc1234 (pr #1 2026-11-01)+chat-approval')).toBe(false);
+    expect(isMergePromotion('reconfirmed:chat-approval')).toBe(false);
+    expect(isMergePromotion('reconfirmed:')).toBe(false);
+  });
+
   it('is false for other methods and empty values', () => {
     expect(isMergePromotion('chat-approval')).toBe(false);
     expect(isMergePromotion('manual-review merged:')).toBe(false);
