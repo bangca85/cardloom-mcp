@@ -18,6 +18,7 @@ import {
   syntheticQueries,
 } from '../../src/cli/benchmark.js';
 import { handleSearchKnowledge } from '../../src/tools/search-knowledge.js';
+import { DEFAULT_SEARCH_LIMIT } from '../../src/services/search-service.js';
 
 // A pass-through spy so one test can change what the tool serialises; every other test sees the real handler.
 vi.mock('../../src/tools/search-knowledge.js', async (importOriginal) => {
@@ -551,6 +552,19 @@ describe('compare limits on the committed fixture store', () => {
     compareLimits(db, round1(), { ranking: 'x', fallback: 'tiered' });
     const limits = vi.mocked(handleSearchKnowledge).mock.calls.map(([, args]) => args.limit);
     expect(limits).toEqual([5, 10]);
+  });
+
+  it('a plain run without limit uses the tool default (5): same report as limit 5, and the tool sees that limit', () => {
+    const plain = runBenchmark(db, queries, { ranking: 'baseline' });
+    const explicit5 = runBenchmark(db, queries, { ranking: 'baseline', limit: 5 });
+    expect(DEFAULT_SEARCH_LIMIT).toBe(5);
+    expect(plain.byKind).toEqual(explicit5.byKind);
+    expect(plain.estimatedResponseTokens).toEqual(explicit5.estimatedResponseTokens);
+    expect(plain.byKind.known?.recall10).toBeUndefined();
+    vi.mocked(handleSearchKnowledge).mockClear();
+    runBenchmark(db, queries, { ranking: 'baseline' });
+    const limits = new Set(vi.mocked(handleSearchKnowledge).mock.calls.map(([, args]) => args.limit));
+    expect([...limits]).toEqual([DEFAULT_SEARCH_LIMIT]);
   });
 
   it('recall10 is reported only for runs with limit >= 10', () => {

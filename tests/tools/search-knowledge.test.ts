@@ -90,13 +90,13 @@ describe('handleSearchKnowledge', () => {
     expect(item['flags']).toBeDefined();
   });
 
-  it('defaults limit to 10 when omitted', () => {
+  it('defaults limit to 5 when omitted (was 10 until 2026-11-25)', () => {
     for (let i = 0; i < 15; i++) {
       insertCard(db, { id: `pattern-${i}`, body: `shared searchable body number ${i}` });
     }
 
     const response = parseResponse(handleSearchKnowledge(db, { query: 'searchable' }));
-    expect(response.results).toHaveLength(10);
+    expect(response.results).toHaveLength(5);
   });
 
   it('includes write_back_reminder in every response, even with zero results', () => {
@@ -204,5 +204,14 @@ describe('handleSearchKnowledge', () => {
 
     const without = parseResponse(handleSearchKnowledge(db, { query: 'projected' }));
     for (const item of without.results) expect(item['applies_to_project']).toBeUndefined();
+  });
+
+  it('returns 5 of 8 matching cards without limit, and 8 with limit: 10 (default limit 5)', () => {
+    for (let i = 1; i <= 8; i++) {
+      insertCard(db, { id: `pattern-lim${i}`, title: `Limit probe ${i}`, body: 'zebracrossing handling notes' });
+    }
+
+    expect(parseResponse(handleSearchKnowledge(db, { query: 'zebracrossing' })).results).toHaveLength(5);
+    expect(parseResponse(handleSearchKnowledge(db, { query: 'zebracrossing', limit: 10 })).results).toHaveLength(8);
   });
 });

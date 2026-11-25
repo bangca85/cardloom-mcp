@@ -9,6 +9,7 @@ import { getDatabase } from './db/database.js';
 import { initKnowledgeStore } from './services/knowledge-store.js';
 import { reconcileIndex } from './services/index-reconciler.js';
 import { renderCard } from './services/card-service.js';
+import { DEFAULT_SEARCH_LIMIT } from './services/search-service.js';
 import { handleSaveLearningDraft } from './tools/save-learning-draft.js';
 import { handleSearchKnowledge } from './tools/search-knowledge.js';
 import { handleGetCard } from './tools/get-card.js';
@@ -137,7 +138,7 @@ export function createServer(db: Database.Database, knowledgeStorePath: string):
         include_drafts: z.boolean().optional().describe('Include draft cards (labeled untrusted)'),
         include_deprecated: z.boolean().optional().describe('Include deprecated cards'),
         include_restricted: z.boolean().optional().describe('Include sensitivity:restricted cards'),
-        limit: z.number().optional().describe('Max results (default 10)'),
+        limit: z.number().optional().describe(`Max results (default ${DEFAULT_SEARCH_LIMIT})`),
       },
     },
     withErrorBoundary((args) => handleSearchKnowledge(db, args)),

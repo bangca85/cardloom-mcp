@@ -263,6 +263,10 @@ When all returned cards are partial matches, the response includes `no_direct_ma
 cards as leads for a follow-up search, not as an answer. Set `SEARCH_FALLBACK=off` to get only cards that
 match all words.
 
+`search_knowledge` returns at most 5 cards by default (it was 10 in earlier versions). Pass `limit` for more,
+for example `limit: 10`. With the tiered fallback, partial matches are added only when fewer than `limit` cards
+match every word.
+
 By default only `verified`, non-restricted cards are returned. `include_drafts`, `include_deprecated` and
 `include_restricted` opt in, and those cards are always labelled. Each result also carries a `trust` score
 and flags: `drift` (the card's version range does not match the caller's), `stale` and `needs_review`.
@@ -668,7 +672,9 @@ have zero full-text hits. `--matrix` runs the same queries under `baseline/off`,
 npm run build && npm run benchmark -- --synthetic --matrix
 ```
 
-`--limit <n>` runs the benchmark with `search_knowledge`'s `limit` set to `n` (the report then also shows
+A plain run (no `--limit`) reports at the tool's default limit, 5, so its numbers describe what an agent gets
+from `search_knowledge` without passing `limit`; `--limit` and `--compare-limits` are unchanged. `--limit <n>`
+runs the benchmark with `search_knowledge`'s `limit` set to `n` (the report then also shows
 recall@10 when `n` is 10 or more). `--compare-limits` runs every query twice, once with `limit` 5 and once with
 `limit` 10, for each ranking (`baseline`, `x`, `y`), and prints one table per ranking: recall@5 per kind for the
 limit-5 run, recall@5 and recall@10 for the limit-10 run, hit@1 and each kind's own metric for both, and the

@@ -7,7 +7,7 @@ import { parse as parseYaml } from 'yaml';
 import { config } from '../config/env.js';
 import { initializeSchema } from '../db/schema.js';
 import { reconcileIndex } from '../services/index-reconciler.js';
-import { searchCards, type SearchContext, type SearchFallback, type SearchRanking } from '../services/search-service.js';
+import { searchCards, DEFAULT_SEARCH_LIMIT, type SearchContext, type SearchFallback, type SearchRanking } from '../services/search-service.js';
 import { handleSearchKnowledge } from '../tools/search-knowledge.js';
 import { estimateToolJsonTokens } from '../utils/token-estimate.js';
 
@@ -81,7 +81,7 @@ export interface BenchmarkOptions {
   fallback?: SearchFallback;
   /** Clock for the stale flag and trust decay; defaults to the real time. */
   now?: Date;
-  /** `search_knowledge`'s `limit`; when unset the search-service default applies and `recall10` is not reported. */
+  /** `search_knowledge`'s `limit`; when unset the tool's default (`DEFAULT_SEARCH_LIMIT`, 5) is used and `recall10` is not reported. */
   limit?: number;
 }
 
@@ -370,7 +370,8 @@ export function runBenchmark(
 ): BenchmarkReport {
   const durations: number[] = [];
   const responseTokens: number[] = [];
-  const withRecall10 = opts.limit !== undefined && opts.limit >= 10;
+  const limit = opts.limit ?? DEFAULT_SEARCH_LIMIT;
+  const withRecall10 = limit >= 10;
   const misses: BenchmarkMiss[] = [];
   const byKindAcc = new Map<BenchmarkKind, Acc>();
   const byGroupAcc = new Map<string, Acc>();
@@ -392,14 +393,14 @@ export function runBenchmark(
     const results = searchCards(
       db,
       q.query,
-      { context: q.context, ranking: opts.ranking, fallback: opts.fallback, limit: opts.limit },
+      { context: q.context, ranking: opts.ranking, fallback: opts.fallback, limit },
       opts.now,
     );
     durations.push(performance.now() - start);
     // The size the agent actually receives: the tool's own serialised JSON, not the searchCards items.
     const toolResponse = handleSearchKnowledge(
       db,
-      { query: q.query, context: q.context, limit: opts.limit },
+      { query: q.query, context: q.context, limit },
       { ranking: opts.ranking, fallback: opts.fallback, now: opts.now },
     );
     responseTokens.push(estimateToolJsonTokens(toolResponse.content[0]!.text));

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { initializeSchema } from '../../src/db/schema.js';
-import { searchCards } from '../../src/services/search-service.js';
+import { searchCards, DEFAULT_SEARCH_LIMIT } from '../../src/services/search-service.js';
 
 interface CardFixture {
   id: string;
@@ -227,7 +227,7 @@ describe('searchCards — tiered fallback, ranking modes, scope layers (Task 4)'
 
   it('fallback off reproduces the previous AND-only order exactly', () => {
     // Recorded against the pre-Task-4 search-service before any src/ change (see task-4-report.md).
-    expect(searchCards(db, 'retry patterns', { fallback: 'off' }).map((r) => r.id)).toEqual([
+    expect(searchCards(db, 'retry patterns', { fallback: 'off', limit: 10 }).map((r) => r.id)).toEqual([
       'pattern-s2',
       'decision-s3',
       'pattern-s1',
@@ -236,7 +236,7 @@ describe('searchCards — tiered fallback, ranking modes, scope layers (Task 4)'
       'gotcha-s4',
     ]);
     expect(
-      searchCards(db, 'retry patterns', { fallback: 'off', context: { stack: ['node'], versions: { node: '^20.0.0' } } }).map((r) => r.id),
+      searchCards(db, 'retry patterns', { fallback: 'off', limit: 10, context: { stack: ['node'], versions: { node: '^20.0.0' } } }).map((r) => r.id),
     ).toEqual(['decision-s3', 'pattern-s1', 'pattern-s5', 'pattern-s6', 'pattern-s2', 'gotcha-s4']);
     expect(searchCards(db, 'retry patterns', { fallback: 'off', limit: 3 }).map((r) => r.id)).toEqual([
       'pattern-s2',
@@ -355,11 +355,11 @@ describe('searchCards — tiered fallback, ranking modes, scope layers (Task 4)'
   });
 
   it('scope_layer is null without a caller project and unknown for path-only legacy cards', () => {
-    const noProject = searchCards(db, 'retry patterns', {});
+    const noProject = searchCards(db, 'retry patterns', { limit: 10 });
     expect(noProject.length).toBeGreaterThan(0);
     expect(noProject.every((x) => x.scope_layer === null)).toBe(true);
 
-    const withProject = searchCards(db, 'retry patterns', { context: { project: 'acme/billing-api' } });
+    const withProject = searchCards(db, 'retry patterns', { limit: 10, context: { project: 'acme/billing-api' } });
     expect(withProject.find((x) => x.id === 'gotcha-s4')?.scope_layer).toBe('unknown');
     expect(withProject.find((x) => x.id === 'decision-s3')?.scope_layer).toBe('shared');
   });
@@ -374,5 +374,33 @@ describe('searchCards — tiered fallback, ranking modes, scope layers (Task 4)'
     const titleOnly = searchCards(db, 'Queue consumers', {});
     const s2 = titleOnly.find((x) => x.id === 'pattern-s2');
     expect(s2?.excerpt.length).toBeGreaterThan(0);
+  });
+});
+
+describe('searchCards — default limit', () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    initializeSchema(db);
+    for (let i = 1; i <= 8; i++) {
+      insertCard(db, { id: `pattern-lim${i}`, title: `Limit probe ${i}`, body: 'zebracrossing handling notes' });
+    }
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it('the default limit is 5', () => {
+    expect(DEFAULT_SEARCH_LIMIT).toBe(5);
+  });
+
+  it('returns exactly 5 of 8 matching cards when no limit is given', () => {
+    expect(searchCards(db, 'zebracrossing', {})).toHaveLength(5);
+  });
+
+  it('returns all 8 matching cards when limit: 10 is passed', () => {
+    expect(searchCards(db, 'zebracrossing', { limit: 10 })).toHaveLength(8);
   });
 });

@@ -17,6 +17,12 @@ import type { Card } from '../types/card-schema.js';
 export type SearchRanking = 'baseline' | 'x' | 'y';
 export type SearchFallback = 'off' | 'tiered';
 
+/**
+ * Results returned when the caller gives no `limit` (also the tiered-fallback threshold). 5 since 2026-11-25
+ * (was 10): measured on the reviewed benchmark set, 5 loses no recall and roughly halves the response size.
+ */
+export const DEFAULT_SEARCH_LIMIT = 5;
+
 export interface SearchContext {
   stack?: string[];
   versions?: Record<string, string>;
@@ -225,7 +231,7 @@ export function searchCards(db: Database.Database, query: string, opts: SearchOp
 
   const ranking: SearchRanking = opts.ranking ?? config.searchRanking;
   const fallback: SearchFallback = opts.fallback ?? config.searchFallback;
-  const limit = opts.limit !== undefined && opts.limit > 0 ? opts.limit : 10;
+  const limit = opts.limit !== undefined && opts.limit > 0 ? opts.limit : DEFAULT_SEARCH_LIMIT;
 
   const andQuery = buildFtsQuery(query);
 
