@@ -19,6 +19,7 @@ export function initializeSchema(db: Database.Database): void {
       supersedes TEXT,
       conflicts_with TEXT NOT NULL DEFAULT '[]',
       source_commit TEXT NOT NULL,
+      source_repo TEXT,
       provenance TEXT NOT NULL,
       verified_by TEXT,
       verification_method TEXT,
@@ -89,18 +90,19 @@ export function initializeSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_card_stacks_name ON card_stacks(stack_name);
   `);
 
-  // In-place migration for indexes created before the `project` column existed (AD-2: derived
-  // data, repopulated by the next reconcile). CREATE TABLE IF NOT EXISTS never alters a table.
-  const hasProjectColumn = (): boolean =>
-    (db.prepare('PRAGMA table_info(cards)').all() as Array<{ name: string }>).some((c) => c.name === 'project');
-  if (!hasProjectColumn()) {
+  // In-place migration for indexes created before the `project` / `source_repo` columns existed (AD-2:
+  // derived data, repopulated by the next reconcile). CREATE TABLE IF NOT EXISTS never alters a table.
+  for (const column of ['project', 'source_repo']) {
+    const hasColumn = (): boolean =>
+      (db.prepare('PRAGMA table_info(cards)').all() as Array<{ name: string }>).some((c) => c.name === column);
+    if (hasColumn()) continue;
     // Two processes can open the same old index at once (cardloom-mcp + cardloom-web on one volume,
     // or two npx sessions). Re-check under the write lock so only one of them runs the ALTER.
     db.transaction(() => {
-      if (hasProjectColumn()) return;
-      db.exec('ALTER TABLE cards ADD COLUMN project TEXT');
-      // Existing rows have project = NULL; clearing file_mtime makes the next reconcile re-read every
-      // card (it skips rows whose mtime matches), so project values already in frontmatter get indexed.
+      if (hasColumn()) return;
+      db.exec(`ALTER TABLE cards ADD COLUMN ${column} TEXT`);
+      // Existing rows have the new column = NULL; clearing file_mtime makes the next reconcile re-read every
+      // card (it skips rows whose mtime matches), so values already in frontmatter get indexed.
       db.exec("UPDATE cards SET file_mtime = ''");
     }).immediate();
   }

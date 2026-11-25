@@ -54,6 +54,21 @@ describe('schema.ts relations and stacks', () => {
     old.close();
   });
 
+  it('upgrades an index created before the source_repo column and marks rows for re-reading', () => {
+    const old = new Database(':memory:');
+    initializeSchema(old);
+    old.exec('ALTER TABLE cards DROP COLUMN source_repo');
+    old.exec(`INSERT INTO cards (id, type, status, title, scope, version_range, sensitivity, source_commit, provenance, body, created_at, updated_at, file_mtime)
+      VALUES ('pattern-old', 'pattern', 'draft', 't', 'project', '*', 'normal', 'abc', 'agent-observation', 'b', 'x', 'x', '2026-01-01T00:00:00.000Z')`);
+    const columns = () => (old.prepare('PRAGMA table_info(cards)').all() as Array<{ name: string }>).map((c) => c.name);
+    expect(columns()).not.toContain('source_repo');
+    initializeSchema(old);
+    expect(columns()).toContain('source_repo');
+    expect((old.prepare("SELECT file_mtime FROM cards WHERE id = 'pattern-old'").get() as { file_mtime: string }).file_mtime).toBe('');
+    initializeSchema(old); // idempotent
+    old.close();
+  });
+
   const projectColumnCount = (d: Database.Database): number =>
     (d.prepare('PRAGMA table_info(cards)').all() as Array<{ name: string }>).filter((c) => c.name === 'project').length;
 

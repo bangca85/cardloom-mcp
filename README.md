@@ -39,7 +39,7 @@ draft. You decide what a draft becomes:
 | Tool | What it does |
 | --- | --- |
 | `search_knowledge` | Find cards by keywords or a pasted error message; returns compact results with a `match` label. |
-| `get_card` | Read one card in full (also available as the resource `knowledge://card/{id}`). Reports `replacement.pending` (a draft proposes to replace it; it is still the current answer) and `replacement.superseded_by` (read that card instead). |
+| `get_card` | Read one card in full (also available as the resource `knowledge://card/{id}`). Carries `source` (`repo`, 7-character `commit`, `approved_at` date; each `null` when unknown) so you can tell where it came from. Reports `replacement.pending` (a draft proposes to replace it; it is still the current answer) and `replacement.superseded_by` (read that card instead). |
 | `save_learning_draft` | Save a new card as a draft. |
 | `update_card_status` | Verify or deprecate a card; agents should call it only when you tell them to. |
 | `report_card_usage` | Report whether a card helped: `confirmed`, `refuted` or `neutral`. |
@@ -267,6 +267,12 @@ match all words.
 for example `limit: 10`. With the tiered fallback, partial matches are added only when fewer than `limit` cards
 match every word.
 
+Search results stay compact and do not carry `source`: adding repo, commit and approval date to every result
+raised the estimated response size by about 17% at limit 5. `get_card` returns it for the one card you read:
+`source: { repo, commit, approved_at }`. `repo` is the card's `source_repo`, else the first `applies_to` entry;
+`commit` is the sha found in `source_commit`, shortened to 7 characters; `approved_at` is the date part of
+`last_verified` (`null` for a draft). Each field is `null` when it is unknown.
+
 By default only `verified`, non-restricted cards are returned. `include_drafts`, `include_deprecated` and
 `include_restricted` opt in, and those cards are always labelled. Each result also carries a `trust` score
 and flags: `drift` (the card's version range does not match the caller's), `stale` and `needs_review`.
@@ -365,7 +371,7 @@ stack:
 domain: <frontend|backend|infra|product|...>
 ```
 
-Don't re-derive something a `verified` card already answers.
+Don't re-derive something a `verified` card already answers. When a returned card from another project helps, say which project and commit it came from (`get_card` shows its "source").
 
 **After using a returned card — you MUST call `report_card_usage(id, outcome)`**
 (`confirmed`/`refuted`/`neutral`). This is not optional — every search/get_card response carries

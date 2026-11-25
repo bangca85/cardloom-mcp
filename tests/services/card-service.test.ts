@@ -81,6 +81,14 @@ describe('saveLearningDraft', () => {
     expect(parsed.data['project']).toBe('acme/billing-api');
   });
 
+  it('indexes source_repo on save so search can report where the card came from', async () => {
+    await saveLearningDraft(db, storePath, baseInput({ title: 'Repo sourced pattern', source_repo: 'acme/billing' }));
+    const row = db.prepare('SELECT source_repo FROM cards WHERE id = ?').get('pattern-repo-sourced-pattern') as {
+      source_repo: string | null;
+    };
+    expect(row.source_repo).toBe('acme/billing');
+  });
+
   it('rejects an absolute path as project key and writes no file', async () => {
     await expect(
       saveLearningDraft(db, storePath, baseInput({ title: 'Path keyed pattern', project: '/Users/me/app' })),
@@ -174,6 +182,8 @@ interface RenderCardFixture {
   deprecation_reason?: string | null;
   last_verified?: string | null;
   failure?: number;
+  source_repo?: string | null;
+  source_commit?: string;
 }
 
 function insertRenderableCard(rdb: Database.Database, fixture: RenderCardFixture): void {
@@ -183,12 +193,12 @@ function insertRenderableCard(rdb: Database.Database, fixture: RenderCardFixture
         id, type, status, title, domain, stack, applies_to, task_type, error_signature,
         scope, version_range, sensitivity, supersedes, conflicts_with, source_commit, provenance,
         verified_by, verification_method, last_verified, deprecation_reason, deprecated_at, deprecated_by,
-        body, created_at, updated_at, file_mtime
+        body, created_at, updated_at, file_mtime, source_repo
       ) VALUES (
         @id, 'pattern', @status, @title, NULL, '["node"]', '["api"]', NULL, NULL,
-        'project', '>=1.0.0', @sensitivity, NULL, '[]', 'abc123', 'agent-observation',
+        'project', '>=1.0.0', @sensitivity, NULL, '[]', @source_commit, 'agent-observation',
         @verified_by, @verification_method, @last_verified, @deprecation_reason, @deprecated_at, @deprecated_by,
-        'Body content.', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'
+        'Body content.', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', @source_repo
       )`,
     )
     .run({
@@ -196,6 +206,8 @@ function insertRenderableCard(rdb: Database.Database, fixture: RenderCardFixture
       status: fixture.status ?? 'verified',
       title: `Title for ${fixture.id}`,
       sensitivity: fixture.sensitivity ?? 'normal',
+      source_repo: fixture.source_repo ?? null,
+      source_commit: fixture.source_commit ?? 'abc123',
       verified_by: fixture.status === 'draft' ? null : 'bradley',
       verification_method: fixture.status === 'draft' ? null : 'manual-review',
       last_verified: fixture.status === 'draft' ? null : (fixture.last_verified ?? '2026-01-01T00:00:00Z'),
@@ -592,6 +604,27 @@ describe('renderCard', () => {
 
     expect(card.flags.stale).toBe(true);
     expect(card.flags.needs_review).toBe(true);
+  });
+
+  it('adds source: repo, 7-character commit and approval date (AD-15: only renderCard serializes a card)', () => {
+    insertRenderableCard(rdb, {
+      id: 'pattern-sourced',
+      source_repo: 'acme/billing',
+      source_commit: '9f1c2ab0 (story 5.26)',
+      last_verified: '2026-10-03T08:15:00.000Z',
+    });
+
+    expect(renderCard(rdb, 'pattern-sourced').source).toEqual({
+      repo: 'acme/billing',
+      commit: '9f1c2ab',
+      approved_at: '2026-10-03',
+    });
+  });
+
+  it('falls back to the first applies_to for the repo and has approved_at null on a draft', () => {
+    insertRenderableCard(rdb, { id: 'pattern-draft-source', status: 'draft', source_commit: 'working tree' });
+
+    expect(renderCard(rdb, 'pattern-draft-source').source).toEqual({ repo: 'api', commit: null, approved_at: null });
   });
 
   it('never includes a drift flag — get_card/Resource have no query context to compare against', () => {

@@ -58,6 +58,17 @@ describe('handleGetCard', () => {
     expect(response.write_back_reminder).toBe(WRITE_BACK_REMINDER);
   });
 
+  it('carries source (repo, 7-character commit, approval date) in the rendered card', () => {
+    insertCard(db, 'pattern-sourced');
+    db.prepare("UPDATE cards SET source_repo = 'acme/billing', source_commit = '9f1c2ab0 (story 5.26)' WHERE id = ?").run(
+      'pattern-sourced',
+    );
+
+    const response = parseResponse(handleGetCard(db, { id: 'pattern-sourced' }));
+
+    expect(response.card['source']).toEqual({ repo: 'acme/billing', commit: '9f1c2ab', approved_at: '2026-01-01' });
+  });
+
   it('propagates not_found for an id that does not exist (mapped to code not_found at the server boundary)', () => {
     expect(() => handleGetCard(db, { id: 'pattern-missing' })).toThrow();
   });

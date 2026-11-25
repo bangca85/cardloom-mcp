@@ -22,7 +22,7 @@ stack:
 domain: <frontend|backend|infra|product|...>
 \`\`\`
 
-Don't re-derive something a \`verified\` card already answers.
+Don't re-derive something a \`verified\` card already answers. When a returned card from another project helps, say which project and commit it came from (\`get_card\` shows its "source").
 
 **After using a returned card — you MUST call \`report_card_usage(id, outcome)\`**
 (\`confirmed\`/\`refuted\`/\`neutral\`). This is not optional — every search/get_card response carries

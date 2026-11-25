@@ -10,6 +10,7 @@ import { normalizeProjectKey } from '../utils/facets-intersect.js';
 import { generateSlug } from '../utils/slug-generator.js';
 import { daysSince } from '../utils/date.js';
 import { parseSupersededBy } from '../utils/supersede-trace.js';
+import { cardSource, type CardSource } from '../utils/card-source.js';
 import { config } from '../config/env.js';
 import { ConflictError, NotFoundError, ValidationError, InvalidTransitionError } from '../types/errors.js';
 import { insertCardRelationsAndStacks } from '../db/schema.js';
@@ -171,12 +172,12 @@ export async function saveLearningDraft(
       idxDb.prepare(`
         INSERT INTO cards (
           id, type, status, title, domain, stack, applies_to, task_type, error_signature,
-          scope, project, version_range, sensitivity, supersedes, conflicts_with, source_commit, provenance,
+          scope, project, version_range, sensitivity, supersedes, conflicts_with, source_commit, source_repo, provenance,
           verified_by, verification_method, last_verified, deprecation_reason, deprecated_at, deprecated_by,
           body, created_at, updated_at, file_mtime
         ) VALUES (
           @id, @type, @status, @title, @domain, @stack, @applies_to, @task_type, @error_signature,
-          @scope, @project, @version_range, @sensitivity, @supersedes, @conflicts_with, @source_commit, @provenance,
+          @scope, @project, @version_range, @sensitivity, @supersedes, @conflicts_with, @source_commit, @source_repo, @provenance,
           @verified_by, @verification_method, @last_verified, NULL, NULL, NULL,
           @body, @created_at, @updated_at, @file_mtime
         )
@@ -197,6 +198,7 @@ export async function saveLearningDraft(
         supersedes: validatedCard.supersedes,
         conflicts_with: JSON.stringify(validatedCard.conflicts_with),
         source_commit: validatedCard.source_commit,
+        source_repo: validatedCard.source_repo ?? null,
         provenance: validatedCard.provenance,
         verified_by: validatedCard.verified_by,
         verification_method: validatedCard.verification_method,
@@ -269,6 +271,7 @@ interface CardRow {
   supersedes: string | null;
   conflicts_with: string;
   source_commit: string;
+  source_repo: string | null;
   provenance: string;
   verified_by: string | null;
   verification_method: string | null;
@@ -307,6 +310,8 @@ export interface RenderedCard extends CardLabels {
   supersedes: string | null;
   conflicts_with: string[];
   source_commit: string;
+  /** Where the card came from: repo, 7-character commit, approval date (each null when unknown). */
+  source: CardSource;
   provenance: string;
   verified_by: string | null;
   verification_method: string | null;
@@ -436,6 +441,12 @@ export function renderCard(db: Database.Database, id: string, now: Date = new Da
     supersedes: row.supersedes,
     conflicts_with: conflictsWith,
     source_commit: row.source_commit,
+    source: cardSource({
+      source_repo: row.source_repo,
+      applies_to: appliesTo,
+      source_commit: row.source_commit,
+      last_verified: row.last_verified,
+    }),
     provenance: row.provenance,
     verified_by: row.verified_by,
     verification_method: row.verification_method,

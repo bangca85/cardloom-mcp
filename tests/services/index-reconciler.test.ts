@@ -115,6 +115,20 @@ describe('reconcileIndex (cards)', () => {
     expect((db.prepare('SELECT project FROM cards WHERE id = ?').get('pattern-use-x') as { project: string | null }).project).toBeNull();
   });
 
+  it('reconcile indexes source_repo from frontmatter and nulls it when removed', async () => {
+    const withRepo = VALID_CARD.replace('source_commit: abc123\n', 'source_commit: abc123\nsource_repo: acme/billing\n');
+    const filePath = writeCard(storePath, 'pattern-use-x.md', withRepo);
+    await reconcileIndex(db, storePath);
+    const repo = () => (db.prepare('SELECT source_repo FROM cards WHERE id = ?').get('pattern-use-x') as { source_repo: string | null }).source_repo;
+    expect(repo()).toBe('acme/billing');
+
+    fs.writeFileSync(filePath, VALID_CARD);
+    const futureTime = new Date(Date.now() + 10000);
+    fs.utimesSync(filePath, futureTime, futureTime);
+    await reconcileIndex(db, storePath);
+    expect(repo()).toBeNull();
+  });
+
   it('removes a card from the index when its file is deleted', async () => {
     const filePath = writeCard(storePath, 'pattern-use-x.md', VALID_CARD);
     await reconcileIndex(db, storePath);

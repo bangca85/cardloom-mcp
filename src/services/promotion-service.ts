@@ -5,6 +5,9 @@ import type Database from 'better-sqlite3';
 import matter from 'gray-matter';
 import { updateCardStatus } from './card-service.js';
 import type { PromotionMode } from '../config/env.js';
+import { extractSha } from '../utils/sha.js';
+
+export { extractSha };
 
 /**
  * Merge promotion: a draft whose source commit reached its repo's default branch AFTER the card
@@ -58,31 +61,11 @@ export function defaultRunner(timeoutMs = 60_000): CommandRunner {
   };
 }
 
-const SHA_RE = /\b[0-9a-f]{7,40}\b/g;
 const FULL_REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const NAME_RE = /^[A-Za-z0-9_.-]+$/;
 // "abc1234 working tree 2026-10-16" names the BASE the learning sat on, not a commit holding it:
 // the code the card is about was never in that sha, so its merge proves nothing.
 const UNCOMMITTED_RE = /working tree|uncommitted|local change|\+\s*local/i;
-
-/**
- * The commit named in `source_commit`: the first 7-40 hex token that has both a digit and a letter.
- * An abbreviation made only of digits is a real sha about 4% of the time (7 characters), but it also
- * looks like a ticket number, so it is used only when no mixed token exists. Resolution still has to
- * find that commit in the repo, so a ticket number ends as "unresolvable", not as a promotion.
- * Tokens made only of letters (words such as "defaced") are never taken.
- */
-export function extractSha(sourceCommit: string): string | null {
-  let digitsOnly: string | null = null;
-  for (const m of sourceCommit.toLowerCase().matchAll(SHA_RE)) {
-    const token = m[0];
-    const hasLetter = /[a-f]/.test(token);
-    const hasDigit = /[0-9]/.test(token);
-    if (hasLetter && hasDigit) return token;
-    if (hasDigit && digitsOnly === null) digitsOnly = token;
-  }
-  return digitsOnly;
-}
 
 export interface RepoCandidate {
   full?: string;

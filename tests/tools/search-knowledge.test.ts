@@ -85,6 +85,8 @@ describe('handleSearchKnowledge', () => {
     expect(typeof item['snippet']).toBe('string');
     expect((item['snippet'] as string).length).toBeLessThanOrEqual(200);
     expect(item['body']).toBeUndefined();
+    // `source` is get_card-only: in search results it cost +17% response tokens at limit 5 (Task W4 measurement).
+    expect(item['source']).toBeUndefined();
     expect(item['content']).toBeUndefined();
     expect(typeof item['trust']).toBe('number');
     expect(item['flags']).toBeDefined();

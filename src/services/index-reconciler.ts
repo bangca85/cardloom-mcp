@@ -31,12 +31,12 @@ export async function reconcileIndex(db: Database.Database, knowledgeStorePath: 
   const insertStmt = db.prepare(`
     INSERT INTO cards (
       id, type, status, title, domain, stack, applies_to, task_type, error_signature,
-      scope, project, version_range, sensitivity, supersedes, conflicts_with, source_commit, provenance,
+      scope, project, version_range, sensitivity, supersedes, conflicts_with, source_commit, source_repo, provenance,
       verified_by, verification_method, last_verified, deprecation_reason, deprecated_at, deprecated_by,
       body, created_at, updated_at, file_mtime
     ) VALUES (
       @id, @type, @status, @title, @domain, @stack, @applies_to, @task_type, @error_signature,
-      @scope, @project, @version_range, @sensitivity, @supersedes, @conflicts_with, @source_commit, @provenance,
+      @scope, @project, @version_range, @sensitivity, @supersedes, @conflicts_with, @source_commit, @source_repo, @provenance,
       @verified_by, @verification_method, @last_verified, @deprecation_reason, @deprecated_at, @deprecated_by,
       @body, @created_at, @updated_at, @file_mtime
     )
@@ -47,7 +47,7 @@ export async function reconcileIndex(db: Database.Database, knowledgeStorePath: 
       type = @type, status = @status, title = @title, domain = @domain, stack = @stack,
       applies_to = @applies_to, task_type = @task_type, error_signature = @error_signature,
       scope = @scope, project = @project, version_range = @version_range, sensitivity = @sensitivity, supersedes = @supersedes,
-      conflicts_with = @conflicts_with, source_commit = @source_commit, provenance = @provenance,
+      conflicts_with = @conflicts_with, source_commit = @source_commit, source_repo = @source_repo, provenance = @provenance,
       verified_by = @verified_by, verification_method = @verification_method, last_verified = @last_verified,
       deprecation_reason = @deprecation_reason, deprecated_at = @deprecated_at, deprecated_by = @deprecated_by,
       body = @body, updated_at = @updated_at, file_mtime = @file_mtime
@@ -112,6 +112,7 @@ export async function reconcileIndex(db: Database.Database, knowledgeStorePath: 
         supersedes: card.supersedes,
         conflicts_with: JSON.stringify(card.conflicts_with),
         source_commit: card.source_commit,
+        source_repo: card.source_repo ?? null,
         provenance: card.provenance,
         verified_by: card.verified_by,
         verification_method: card.verification_method,
