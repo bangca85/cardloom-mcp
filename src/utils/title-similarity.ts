@@ -1,5 +1,5 @@
-/** Words of one or two letters ("in", "to") carry no meaning here: `Use WAL mode in SQLite` equals `SQLite: use WAL mode`. */
-const MIN_TOKEN_LENGTH = 3;
+/** Tokens of one letter are noise; two-letter tokens ("go", "db", "ui", "ci", "id") are meaningful in technical titles. */
+const MIN_TOKEN_LENGTH = 2;
 const TOKEN_RE = /[\p{L}\p{N}]+/gu;
 
 function tokens(title: string): Set<string> {
@@ -10,7 +10,7 @@ function tokens(title: string): Set<string> {
   return out;
 }
 
-/** Jaccard overlap (0..1) of the lowercase letter/digit tokens (length >= 3) of two titles; 0 if either has none. */
+/** Jaccard overlap (0..1) of the lowercase letter/digit tokens (length >= 2) of two titles; 0 if either has none. */
 export function titleSimilarity(a: string, b: string): number {
   return jaccard(tokens(a), tokens(b));
 }
