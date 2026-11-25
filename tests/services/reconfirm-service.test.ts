@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import matter from 'gray-matter';
 import type Database from 'better-sqlite3';
 import { getDatabase, closeDatabase } from '../../src/db/database.js';
@@ -147,6 +148,8 @@ describe('reconfirm-service', () => {
       });
       expect(matter(fs.readFileSync(cardFile(a), 'utf-8')).data['verification_method']).toBe('reconfirmed:chat-approval');
       expect(matter(fs.readFileSync(cardFile(c), 'utf-8')).data['verification_method']).toBe('chat-approval');
+      const subjects = execFileSync('git', ['-C', storePath, 'log', '-2', '--format=%s'], { encoding: 'utf-8' }).trim().split('\n');
+      expect(subjects).toEqual([`knowledge: reconfirm ${b} (by carol)`, `knowledge: reconfirm ${a} (by carol)`]);
     });
   });
 });

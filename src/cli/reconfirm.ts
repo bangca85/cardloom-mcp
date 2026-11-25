@@ -13,7 +13,7 @@ export const RECONFIRM_USAGE = [
   '  --stale    list verified cards last verified more than STALE_THRESHOLD_DAYS ago, oldest first, with the hash to confirm them with',
   '  --confirm  re-confirm the listed cards (a human re-checked them and they are still right); refused if the file changed since it was listed',
   '             or the card needs review; the others are still applied, and the exit code is 1 if any was refused',
-  '  --by       who re-confirmed; defaults to REVIEWER_NAME. It is recorded in nothing but this command\'s output line',
+  '  --by       who re-confirmed; defaults to REVIEWER_NAME. It is recorded in the git commit message, not in the card file',
 ].join('\n');
 
 export interface ReconfirmEntry {

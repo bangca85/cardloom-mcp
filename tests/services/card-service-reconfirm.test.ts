@@ -8,7 +8,7 @@ import type Database from 'better-sqlite3';
 import { getDatabase, closeDatabase } from '../../src/db/database.js';
 import { initKnowledgeStore } from '../../src/services/knowledge-store.js';
 import { resetGit } from '../../src/services/git-service.js';
-import { renderCard, saveLearningDraft, updateCardStatus } from '../../src/services/card-service.js';
+import { renderCard, sanitizeActor, saveLearningDraft, updateCardStatus } from '../../src/services/card-service.js';
 import { cardFileHash } from '../../src/services/reconfirm-service.js';
 import { InvalidTransitionError } from '../../src/types/errors.js';
 
@@ -66,7 +66,7 @@ describe('updateCardStatus: reconfirm (AD-9 amendment 2026-11-25)', () => {
       (e: unknown) => e,
     );
 
-  it('keeps status verified, refreshes last_verified, prefixes the method once, commits `knowledge: reconfirm <id>`', async () => {
+  it('keeps status verified, refreshes last_verified, prefixes the method once, commits `knowledge: reconfirm <id> (by <actor>)`', async () => {
     const id = await verifiedCard('Old retries', 400);
     expect(renderCard(db, id).flags.stale).toBe(true);
     const before = Date.now();
@@ -87,7 +87,7 @@ describe('updateCardStatus: reconfirm (AD-9 amendment 2026-11-25)', () => {
       verification_method: 'reconfirmed:chat-approval',
       last_verified: fm['last_verified'],
     });
-    expect(git('log', '-1', '--format=%s')).toBe(`knowledge: reconfirm ${id}`);
+    expect(git('log', '-1', '--format=%s')).toBe(`knowledge: reconfirm ${id} (by carol)`);
     expect(renderCard(db, id).flags.stale).toBeUndefined();
   });
 
@@ -214,10 +214,58 @@ describe('updateCardStatus: reconfirm (AD-9 amendment 2026-11-25)', () => {
     parsed.data['supersedes'] = oldId;
     fs.writeFileSync(cardFile(newId), matter.stringify(parsed.content, parsed.data));
 
-    await updateCardStatus(db, storePath, { id: newId, action: 'reconfirm' });
+    await updateCardStatus(db, storePath, { id: newId, action: 'reconfirm', by: 'carol' });
 
     expect(indexRow(oldId)).toMatchObject({ status: 'verified' });
     expect(readFm(oldId)['status']).toBe('verified');
-    expect(git('log', '-1', '--format=%s')).toBe(`knowledge: reconfirm ${newId}`);
+    expect(git('log', '-1', '--format=%s')).toBe(`knowledge: reconfirm ${newId} (by carol)`);
+  });
+
+  describe('the actor is recorded in the commit message only', () => {
+    const subject = async (title: string, by: string | undefined): Promise<string> => {
+      const id = await verifiedCard(title, 400, 'chat-approval', [title.toLowerCase().replace(/\W+/g, '-')]);
+      await updateCardStatus(db, storePath, { id, action: 'reconfirm', ...(by !== undefined && { by }) });
+      expect(Object.values(readFm(id)).join('|')).not.toContain('carol');
+      expect(git('log', '-1', '--format=%s')).toContain(id);
+      return git('log', '-1', '--format=%s').replace(`knowledge: reconfirm ${id} `, '');
+    };
+
+    it('uses `by` as given', async () => {
+      expect(await subject('Actor given', 'carol')).toBe('(by carol)');
+    });
+
+    it('defaults to REVIEWER_NAME, then to human-reviewer', async () => {
+      const prev = process.env['REVIEWER_NAME'];
+      try {
+        process.env['REVIEWER_NAME'] = 'dana';
+        expect(await subject('Actor env', undefined)).toBe('(by dana)');
+        delete process.env['REVIEWER_NAME'];
+        expect(await subject('Actor default', undefined)).toBe('(by human-reviewer)');
+      } finally {
+        if (prev === undefined) delete process.env['REVIEWER_NAME'];
+        else process.env['REVIEWER_NAME'] = prev;
+      }
+    });
+
+    it('collapses newlines and strips control characters, so the subject stays one line', async () => {
+      expect(await subject('Actor lines', 'carol\nSigned-off-by: x\t\u0007  y')).toBe('(by carol Signed-off-by: x y)');
+    });
+
+    it('cuts a 200-character actor at 80 characters', async () => {
+      expect(await subject('Actor long', 'a'.repeat(200))).toBe(`(by ${'a'.repeat(80)})`);
+    });
+
+    it('uses `unknown` when nothing is left after cleaning', async () => {
+      expect(await subject('Actor empty', ' \n\u0000\u0007 ')).toBe('(by unknown)');
+    });
+  });
+
+  describe('sanitizeActor', () => {
+    it('trims, collapses, strips, cuts and falls back', () => {
+      expect(sanitizeActor('  bob   smith ')).toBe('bob smith');
+      expect(sanitizeActor('a\u0001b')).toBe('ab');
+      expect(sanitizeActor(`${'x'.repeat(79)} yyyy`)).toBe('x'.repeat(79));
+      expect(sanitizeActor('')).toBe('unknown');
+    });
   });
 });

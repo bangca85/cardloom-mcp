@@ -61,13 +61,13 @@ describe('parseReconfirmArgs', () => {
     expect(parseReconfirmArgs(argv as string[])).toBeNull();
   });
 
-  it('the usage names both modes and says --by is recorded only in the output line', () => {
+  it('the usage names both modes and says --by is recorded in the commit message', () => {
     expect(RECONFIRM_USAGE).toContain('Usage: reconfirm');
     expect(RECONFIRM_USAGE).toContain('--stale');
     expect(RECONFIRM_USAGE).toContain('--confirm');
     expect(RECONFIRM_USAGE).toContain('--by');
     expect(RECONFIRM_USAGE).toContain('REVIEWER_NAME');
-    expect(RECONFIRM_USAGE).toContain("recorded in nothing but this command's output");
+    expect(RECONFIRM_USAGE).toContain('recorded in the git commit message, not in the card file');
   });
 });
 
@@ -174,7 +174,7 @@ describe('reconfirm CLI on a temp store', () => {
     ]);
     expect(matter(fs.readFileSync(cardFile(a), 'utf-8')).data['verification_method']).toBe('reconfirmed:chat-approval');
     expect(matter(fs.readFileSync(cardFile(b), 'utf-8')).data['verification_method']).toBe('chat-approval');
-    expect(git('log', '-1', '--format=%s')).toBe(`knowledge: reconfirm ${a}`);
+    expect(git('log', '-1', '--format=%s')).toBe(`knowledge: reconfirm ${a} (by carol)`);
     expect(hashB).toBe(cardFileHash(storePath, b));
   });
 
@@ -189,6 +189,8 @@ describe('reconfirm CLI on a temp store', () => {
     try {
       const res = await runReconfirmCommand(storePath, indexPath, { confirm: entries });
       expect(res).toEqual({ stdout: `reconfirmed ${a} (by dana)\nreconfirmed ${b} (by dana)`, stderr: '', exitCode: 0 });
+      const subjects = git('log', '-2', '--format=%s').split('\n');
+      expect(subjects).toEqual([`knowledge: reconfirm ${b} (by dana)`, `knowledge: reconfirm ${a} (by dana)`]);
     } finally {
       if (prev === undefined) delete process.env['REVIEWER_NAME'];
       else process.env['REVIEWER_NAME'] = prev;

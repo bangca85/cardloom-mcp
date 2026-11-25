@@ -479,7 +479,8 @@ npx cardloom-mcp reconfirm --confirm pattern-a@<hash>,gotcha-b@<hash> --by alice
 `--confirm` re-confirms each `id@hash` it is given and refuses an entry whose card file changed since it was listed
 (the hash is checked under the write lock), has an unknown id, or needs review; the other entries are still applied,
 each refusal is printed on stderr and the exit code is 1. `--by` defaults to `REVIEWER_NAME` and is recorded in
-nothing but the command's output line (the commit message is `knowledge: reconfirm <id>`). From a clone: `npm run reconfirm -- --stale`.
+the git commit message (`knowledge: reconfirm <id> (by <name>)`), not in the card file; the name is trimmed to one line of at most 80 characters.
+Through `update_card_status`, `by` is optional and defaults the same way. From a clone: `npm run reconfirm -- --stale`.
 
 `npm run doctor` shows how review is going: drafts waiting (and the age of the oldest), cards approved by
 a human, by merge promotion, rejected, and retired before review, and the human approval rate (of drafts a

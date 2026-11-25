@@ -58,7 +58,7 @@ export function listStaleCards(db: Database.Database, storePath: string, now: Da
 /**
  * One `updateCardStatus('reconfirm')` per entry, in order, each guarded by the hash it was listed with.
  * A failure (changed file, needs review, unknown id, anything else) is collected, never thrown, and
- * does not stop the entries after it. `by` is passed through for API symmetry; reconfirm records it nowhere.
+ * does not stop the entries after it. `by` is the actor named in the commit message (`knowledge: reconfirm <id> (by <actor>)`); the card file does not carry it.
  */
 export async function reconfirmCards(
   db: Database.Database,

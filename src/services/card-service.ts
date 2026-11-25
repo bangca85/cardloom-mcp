@@ -463,6 +463,14 @@ export function renderCard(db: Database.Database, id: string, now: Date = new Da
   };
 }
 
+/** Actor for a commit subject: whitespace collapsed, control characters stripped, at most 80 characters, `unknown` if nothing is left. */
+export function sanitizeActor(actor: string): string {
+  // eslint-disable-next-line no-control-regex
+  // Drop the non-whitespace control characters first, so collapsing whitespace afterwards leaves single spaces.
+  const clean = actor.replace(/[\x00-\x08\x0e-\x1f\x7f-\x9f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80).trimEnd();
+  return clean === '' ? 'unknown' : clean;
+}
+
 export type UpdateCardStatusAction = 'verify' | 'deprecate' | 'reconfirm';
 
 // Closed transition table (AD-9): keyed by current status, values are the target statuses
@@ -528,7 +536,8 @@ function assertNotAlreadySuperseded(
 /**
  * The only place a card's status ever changes (AD-9). `verify` and `deprecate` are the sole
  * actions that change it; deprecate is invalidate-and-preserve (FR3) — the file is rewritten, never deleted.
- * `reconfirm` (AD-9 amendment 2026-11-25) keeps a verified card verified and only refreshes `last_verified`.
+ * `reconfirm` (AD-9 amendment 2026-11-25) keeps a verified card verified and only refreshes `last_verified`;
+ * who did it goes in the commit message (`(by <actor>)`), never in the card file.
  */
 export async function updateCardStatus(
   db: Database.Database,
@@ -719,7 +728,7 @@ export async function updateCardStatus(
     filesToCommit,
     commitMessage: () =>
       isReconfirm
-        ? `knowledge: reconfirm ${input.id}`
+        ? `knowledge: reconfirm ${input.id} (by ${sanitizeActor(input.by ?? config.reviewerName)})`
         : supersedeApplies && supersedeTargetId
         ? `knowledge: verify ${input.id} (supersedes ${supersedeTargetId})`
         : `knowledge: ${input.action} ${input.id}${input.reason ? ` (${input.reason})` : ''}`,
