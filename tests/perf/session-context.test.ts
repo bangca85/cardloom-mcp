@@ -15,6 +15,12 @@ const RUNS = 20;
 const BUDGET_MS = 1500;
 const PROJECTS = ['bench/mine', 'bench/other-a', 'bench/other-b', 'bench/other-c', 'bench/other-d'];
 
+/** A WAL index leaves `-wal`/`-shm` behind; which path `openIndexReadOnly` takes depends on whether they exist. */
+function removeWalFiles(indexPath: string): void {
+  fs.rmSync(`${indexPath}-wal`, { force: true });
+  fs.rmSync(`${indexPath}-shm`, { force: true });
+}
+
 function p95(durations: number[]): number {
   const sorted = [...durations].sort((a, b) => a - b);
   return sorted[Math.min(sorted.length - 1, Math.ceil(0.95 * sorted.length) - 1)]!;
@@ -30,11 +36,13 @@ describe.skipIf(SKIP_PERF)('buildSessionContext performance (p95 of 20 runs on a
         generateDummyCards(count, store, { projects: PROJECTS });
         const indexPath = path.join(root, 'index.db');
         const build = new Database(indexPath);
-        build.pragma('journal_mode = WAL'); // as the server leaves it: runContext then reads the file into memory
+        build.pragma('journal_mode = WAL'); // as the server leaves it
         initializeSchema(build);
         await reconcileIndex(build, store);
         build.close();
 
+        // Path 1, in place: this read-only open creates the -wal/-shm files, so it measures the query on the file.
+        removeWalFiles(indexPath);
         const db = new Database(indexPath, { readonly: true, fileMustExist: true });
         const opts = { project: 'bench/mine', stack: ['typescript'], maxCards: 5, maxEstimatedTokens: 800 };
         buildSessionContext(db, opts); // warm the statement cache
@@ -48,6 +56,8 @@ describe.skipIf(SKIP_PERF)('buildSessionContext performance (p95 of 20 runs on a
         db.close();
         expect(last.cards.length).toBeGreaterThan(0);
 
+        // Path 2, in memory: with no -wal/-shm next to a WAL index, runContext reads the file into memory instead.
+        removeWalFiles(indexPath);
         const work = path.join(root, 'work');
         fs.mkdirSync(work);
         fs.writeFileSync(path.join(work, '.knowledge-map.yaml'), 'project: bench/mine\nstack:\n  - typescript@5\n');
@@ -58,10 +68,14 @@ describe.skipIf(SKIP_PERF)('buildSessionContext performance (p95 of 20 runs on a
           whole.push(performance.now() - start);
         }
 
+        // The in-memory path really ran: it created nothing next to the index.
+        expect(fs.existsSync(`${indexPath}-wal`)).toBe(false);
+        expect(fs.existsSync(`${indexPath}-shm`)).toBe(false);
+
         const service = p95(durations);
         const command = p95(whole);
         console.error(
-          `[perf] session context @ ${count} cards — buildSessionContext p95=${service.toFixed(2)}ms; runContext (open + map + query) p95=${command.toFixed(2)}ms`,
+          `[perf] session context @ ${count} cards — in place (buildSessionContext) p95=${service.toFixed(2)}ms; in memory (runContext: open + map + query) p95=${command.toFixed(2)}ms`,
         );
         expect(service).toBeLessThan(BUDGET_MS);
         expect(command).toBeLessThan(BUDGET_MS);

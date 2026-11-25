@@ -4,8 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## 1.3.0
 
-Every new switch in this release is off by default: nothing is recorded, registered, shortened or run unless you turn it on
-(`CARDLOOM_TELEMETRY=local`, `install --hooks`, `get_card` `compact`, `reconfirm`, `eval`), and no existing behaviour changes.
+The new switches are off by default: nothing is recorded, registered, shortened or run unless you turn it on
+(`CARDLOOM_TELEMETRY=local`, `CARDLOOM_TELEMETRY_SAMPLES`, `install --hooks`, `get_card` `compact`, `eval`), and no
+existing behaviour changes. `reconfirm` runs only when you call it and, like `verify`, should only be called when a
+human says so.
 
 - New maintainer-run agent-level eval harness under `eval/` (owner decision D5; `npm run eval -- [--runs N] [--modes ...]
   [--compact-pair] [--out dir]`, not shipped in the npm package, not run in CI): three modes (`top5`, `search_then_get`,
@@ -31,7 +33,7 @@ Every new switch in this release is off by default: nothing is recorded, registe
   of `install`). Alone it touches nothing but that file; with `--agent` it also runs the setup of those agents. The file is
   parsed strictly (invalid JSON or an unexpected shape is refused, exit 1, nothing changed), the entry is recognised by a
   command containing `cardloom-mcp context`, indentation, line endings, the trailing newline and the file mode are kept,
-  a symlinked file stays a symlink, and a second run adds nothing. Written through the same temp-file-and-rename helper as the instruction files.
+  a symlinked file stays a symlink, and a second run adds nothing. The entry written carries `"timeout": 15` (seconds). Written through the same temp-file-and-rename helper as the instruction files.
 - New opt-in local telemetry and `gaps` command (owner decision D3, AD-3/AD-4 amendment 2026-11-25). With
   `CARDLOOM_TELEMETRY=local`, each `search_knowledge` call appends one line to `telemetry.jsonl` beside the index (or at the absolute `CARDLOOM_TELEMETRY_PATH`; mode 0600):
   time (UTC), result count, outcome (`answered`, `related_only`, `empty`) and latency in ms. Off by default: with the

@@ -216,7 +216,7 @@ describe.skipIf(!built)('launcher usage and install', () => {
     expect(readdirSync(hookHome)).toEqual(['.claude']);
     expect(readdirSync(join(hookHome, '.claude'))).toEqual(['settings.json']);
     expect(JSON.parse(readFileSync(join(hookHome, '.claude', 'settings.json'), 'utf8'))).toEqual({
-      hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'npx -y cardloom-mcp context' }] }] },
+      hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'npx -y cardloom-mcp context', timeout: 15 }] }] },
     });
   });
 
