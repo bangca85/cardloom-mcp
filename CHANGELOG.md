@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- New `install` command (`npx -y cardloom-mcp install`, then `--yes`): finds the `claude`, `codex` and `gemini` CLIs
+  on PATH, registers the server for all projects (`claude mcp add --scope user`, `codex mcp add`,
+  `gemini mcp add --scope user`) and writes the README instruction block between `<!-- cardloom:start -->` and
+  `<!-- cardloom:end -->` in `~/.claude/CLAUDE.md`, `$CODEX_HOME/AGENTS.md` (default `~/.codex`) and
+  `~/.gemini/GEMINI.md`. Without `--yes` it only prints the plan. An existing `cardloom` entry counts only if its
+  command runs `cardloom-mcp`; another command is left unchanged and gets no instructions, and `cardloom-dev`
+  is never touched. Agents are handled independently, a failure exits 1, and re-running finishes the rest without
+  duplicating the block. `--help` / `-h` print the usage and exit 0. Does not create `~/.cardloom`.
+  The block lives in `src/config/agent-instructions.ts`; a test fails if it differs from the README.
 - README: new FAQ "How is cardloom different from other agent memory tools?" and `tests/readme-claims.test.ts`,
   which fails if the README links no `trust-guarantees` test or contains a forbidden claim pattern.
 - Tests: `tests/integration/trust-guarantees.test.ts` checks, on the JSON `search_knowledge` and `get_card` return, that

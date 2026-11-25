@@ -1,0 +1,76 @@
+[
+  {
+    "name": "cardloom",
+    "enabled": true,
+    "disabled_reason": null,
+    "transport": {
+      "type": "stdio",
+      "command": "/usr/local/bin/node",
+      "args": [
+        "/home/example/src/cardloom-fork/dist/index.js"
+      ],
+      "env": {
+        "KNOWLEDGE_STORE_PATH": "*****"
+      },
+      "env_vars": [],
+      "cwd": null
+    },
+    "startup_timeout_sec": null,
+    "tool_timeout_sec": null,
+    "auth_status": "unsupported"
+  },
+  {
+    "name": "example_tool",
+    "enabled": true,
+    "disabled_reason": null,
+    "transport": {
+      "type": "stdio",
+      "command": "/home/example/.codex/plugins/example/run",
+      "args": [
+        "./server.mjs"
+      ],
+      "env": null,
+      "env_vars": [],
+      "cwd": null
+    },
+    "startup_timeout_sec": null,
+    "tool_timeout_sec": null,
+    "auth_status": "unsupported"
+  },
+  {
+    "name": "exampleDeveloperDocs",
+    "enabled": true,
+    "disabled_reason": null,
+    "transport": {
+      "type": "streamable_http",
+      "url": "https://docs.example.invalid/mcp",
+      "bearer_token_env_var": null,
+      "http_headers": null,
+      "env_http_headers": null,
+      "http_headers_helper": null
+    },
+    "startup_timeout_sec": null,
+    "tool_timeout_sec": null,
+    "auth_status": "unsupported"
+  },
+  {
+    "name": "cardloom-dev",
+    "enabled": true,
+    "disabled_reason": null,
+    "transport": {
+      "type": "stdio",
+      "command": "/usr/local/bin/node",
+      "args": [
+        "/home/example/src/cardloom-fork/dist/index.js"
+      ],
+      "env": {
+        "KNOWLEDGE_STORE_PATH": "*****"
+      },
+      "env_vars": [],
+      "cwd": null
+    },
+    "startup_timeout_sec": null,
+    "tool_timeout_sec": null,
+    "auth_status": "unsupported"
+  }
+]

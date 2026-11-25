@@ -1,0 +1,11 @@
+cardloom:
+  Scope: User config (available in all your projects)
+  Status: ✔ Connected
+  Type: stdio
+  Command: node
+  Args: /home/example/src/cardloom-fork/dist/index.js
+  Environment:
+    KNOWLEDGE_STORE_PATH=/home/example/src/cardloom-fork/knowledge-store
+    INDEX_DB_PATH=/home/example/src/cardloom-fork/.metadata/index.db
+
+To remove this server, run: claude mcp remove cardloom -s user

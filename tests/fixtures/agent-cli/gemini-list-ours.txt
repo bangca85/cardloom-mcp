@@ -1,0 +1,5 @@
+Configured MCP servers:
+
+✓ example-search: https://search.example.invalid/mcp (http) - Connected
+✗ cardloom-dev: node /home/example/src/cardloom-fork/dist/index.js (stdio) - Disconnected
+✓ cardloom: npx -y cardloom-mcp (stdio) - Connected

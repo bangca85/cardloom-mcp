@@ -51,7 +51,21 @@ project's docs and history into draft cards.
 
 Five steps from an empty knowledge store to your first trusted card:
 
-1. Register the server with Claude Code:
+1. Register the server and the usage instructions with every agent CLI found on your machine
+   (Claude Code, Codex, Gemini CLI). The first command only prints what it would do:
+
+   ```bash
+   npx -y cardloom-mcp install
+   npx -y cardloom-mcp install --yes
+   ```
+
+   `install --yes` registers the server for all your projects and adds the
+   [instruction block](#enforcing-usage-claudemd--agentsmd--geminimd) between `<!-- cardloom:start -->`
+   and `<!-- cardloom:end -->` in `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` (or `$CODEX_HOME/AGENTS.md`) and
+   `~/.gemini/GEMINI.md`. It never touches a `cardloom` entry that runs another command, and running it
+   again finishes whatever failed without duplicating the block (see
+   [Set it up once for all projects](#set-it-up-once-for-all-projects)). To register by hand for
+   one project instead:
 
    ```bash
    claude mcp add cardloom -- npx -y cardloom-mcp
@@ -375,7 +389,20 @@ architecture or security call.
 
 ### Set it up once for all projects
 
-Register the server for every project, and put the instruction block above in the client's global file:
+`npx -y cardloom-mcp install --yes` does everything in this section for the agent CLIs it finds on PATH
+(`--agent claude|codex|gemini` limits it, and it can be repeated). Without `--yes` it prints the plan and changes
+nothing.
+
+- It skips registering when a server named exactly `cardloom` already runs `cardloom-mcp`, and writes the
+  instructions anyway. If `cardloom` exists with another command (a dev checkout, say), it leaves that entry
+  alone, says so, and writes no instructions for that agent. A server named `cardloom-dev` is not touched.
+- The instruction block goes between `<!-- cardloom:start -->` and `<!-- cardloom:end -->`; text outside the
+  markers is never changed and a second run replaces the block instead of adding another. If a marker is
+  unmatched or repeated, that agent fails and its file is left as it was. A file that already has the
+  ``## Knowledge Hub (MCP `cardloom`)`` section pasted without markers is left alone too.
+- Any agent that fails makes the command exit 1 with a summary; run it again to finish the rest.
+
+To do it by hand, register the server for every project and put the instruction block above in the client's global file:
 
 | Client | Register the server for all projects | Global instructions file |
 | --- | --- | --- |

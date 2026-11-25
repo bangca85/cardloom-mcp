@@ -1,0 +1,1 @@
+No MCP server named "cardloom". Configured servers: cardloom-dev, claude.ai Example Docs, claude.ai Example Mail, example-search, plugin:example:tools (and 3 more — run `claude mcp list` to see all)
