@@ -55,6 +55,14 @@ describe.skipIf(!built)('launcher usage and install', () => {
     expect(readdirSync(home)).toEqual([]);
   });
 
+  it('doctor with an unknown flag prints the doctor usage to stderr, exits 1 and does not run doctor', () => {
+    const res = launch(['doctor', '--bogus'], [emptyBin]);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toBe('');
+    expect(res.stderr).toContain('Usage: doctor');
+    expect(readdirSync(home)).toEqual([]);
+  });
+
   it('install with no agent CLI on PATH says so, exits 1 and does not create ~/.cardloom', () => {
     const res = launch(['install', '--yes'], [emptyBin]);
     expect(res.code).toBe(1);
@@ -65,6 +73,8 @@ describe.skipIf(!built)('launcher usage and install', () => {
   it.each([
     ['install', '--help', 'Usage: install'],
     ['install', '-h', 'Usage: install'],
+    ['doctor', '--help', 'Usage: doctor'],
+    ['doctor', '-h', 'Usage: doctor'],
     ['triage', '--help', 'Usage: triage'],
     ['triage', '-h', 'Usage: triage'],
     ['report', '--help', 'Usage: report'],

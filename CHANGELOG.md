@@ -4,12 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-- New `report` command (`npx cardloom-mcp report [--days 7] [--json]`): confirmed / refuted / neutral counts in the
+- New `report` command (`npx cardloom-mcp report [--days 7] [--json]`, `--days` up to 36500; also `npm run report`): confirmed / refuted / neutral counts in the
   window, the five cards confirmed most, cards newly at `needs_review` (total refutes at the threshold and at least
-  one inside the window), verified cards that go stale within 30 days, and drafts waiting. Read-only. The derived
+  one inside the window; deprecated cards and ids with no card are left out), verified cards that go stale within 30 days, and drafts waiting. Read-only. The derived
   index gains a `usage_events` table (one row per usage event, created in place on older indexes), filled by the same
   fold function as `counters`, so a full fold and a live fold give the same rows.
-- New `upgrade-check` command (`npx cardloom-mcp upgrade-check --to nextjs@15.0.0`): reads `.knowledge-map.yaml` in the
+- New `upgrade-check` command (`npx cardloom-mcp upgrade-check --to nextjs@15.0.0`, also `npm run upgrade-check`): reads `.knowledge-map.yaml` in the
   current directory and, for each `--to <tech>@<version>`, lists the verified cards that stop applying, start applying
   or apply at both the mapped version and the target (at most 20 per list, `--json` for scripts). Read-only. The drift
   rule it uses is now the exported `cardDriftsFor` in `search-service`, which search calls too, so the two cannot
@@ -70,6 +70,8 @@ All notable changes to this project will be documented in this file.
   whether that card was already replaced or rejected). It reports evidence only, never a verdict, and is
   read-only. `--limit <n>` examines the oldest n drafts; `--json` prints the report as JSON; `--help` / `-h` print
   the usage and exit 0.
+- `cardloom-mcp doctor --help` (or `-h`) now prints the doctor usage and exits 0 instead of running the check; an unknown
+  doctor flag prints the usage to stderr and exits 1.
 
 ## 1.1.2
 

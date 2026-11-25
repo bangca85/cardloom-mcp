@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
-import { runDoctor, formatDoctorReport } from '../../src/cli/doctor.js';
+import { runDoctor, formatDoctorReport, parseDoctorArgs } from '../../src/cli/doctor.js';
 import { EMPTY_STORE_HINT } from '../../src/config/messages.js';
 
 const DRAFT_CARD = `---
@@ -335,5 +335,16 @@ describe('formatDoctorReport', () => {
     expect(text).toContain(tmp);
     expect(text).toContain(path.join(tmp, 'index.db'));
     expect(text).toMatch(/draft:\s+0/);
+  });
+});
+
+describe('parseDoctorArgs', () => {
+  it('no arguments run doctor, --help and -h ask for the usage', () => {
+    expect(parseDoctorArgs([])).toEqual({});
+    expect(parseDoctorArgs(['--help'])).toEqual({ help: true });
+    expect(parseDoctorArgs(['-h'])).toEqual({ help: true });
+  });
+  it.each([[['--bogus']], [['--help', 'x']], [['x']]])('%j is rejected', (argv) => {
+    expect(parseDoctorArgs(argv as string[])).toBeNull();
   });
 });

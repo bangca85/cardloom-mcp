@@ -488,7 +488,7 @@ without the server running.
 
 ### Reading the report
 
-`npx cardloom-mcp report` shows what the store did in the last 7 days (`--days <n>` for another window, `--json` for
+`npx cardloom-mcp report` shows what the store did in the last 7 days (`--days <n>` for another window, up to 36500, `--json` for
 scripts): how many times cards were reported `confirmed`, `refuted` and `neutral`, the five cards confirmed most
 often, cards that now need a look, verified cards that go stale within 30 days, and how many drafts are waiting.
 

@@ -178,8 +178,26 @@ export function formatDoctorReport(r: DoctorReport): string {
   return lines.join('\n');
 }
 
+export const DOCTOR_USAGE = 'Usage: doctor [--help]';
+
+/** Doctor takes no options: `{ help: true }` for `--help` / `-h`, `{}` for no arguments, `null` for anything else. */
+export function parseDoctorArgs(argv: string[]): { help?: true } | null {
+  if (argv.length === 0) return {};
+  if (argv.length === 1 && (argv[0] === '--help' || argv[0] === '-h')) return { help: true };
+  return null;
+}
+
 const isMain = process.argv[1] !== undefined && import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
+  const args = parseDoctorArgs(process.argv.slice(2));
+  if (args === null) {
+    console.error(DOCTOR_USAGE);
+    process.exit(1);
+  }
+  if (args.help) {
+    console.log(DOCTOR_USAGE);
+    process.exit(0);
+  }
   runDoctor(config.knowledgeStorePath, config.indexDbPath)
     .then((report) => {
       console.log(formatDoctorReport(report));

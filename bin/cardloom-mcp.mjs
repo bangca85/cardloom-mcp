@@ -56,9 +56,17 @@ if (arg === 'install') {
   if (arg === 'doctor') {
     // doctor's own isMain guard is false when imported, so run it explicitly (a CLI: stdout is fine).
     try {
-      const { runDoctor, formatDoctorReport } = await import('../dist/cli/doctor.js');
-      const report = await runDoctor(process.env.KNOWLEDGE_STORE_PATH, process.env.INDEX_DB_PATH);
-      console.log(formatDoctorReport(report));
+      const { runDoctor, formatDoctorReport, parseDoctorArgs, DOCTOR_USAGE } = await import('../dist/cli/doctor.js');
+      const args = parseDoctorArgs(process.argv.slice(3));
+      if (args === null) {
+        console.error(DOCTOR_USAGE);
+        process.exitCode = 1;
+      } else if (args.help) {
+        console.log(DOCTOR_USAGE);
+      } else {
+        const report = await runDoctor(process.env.KNOWLEDGE_STORE_PATH, process.env.INDEX_DB_PATH);
+        console.log(formatDoctorReport(report));
+      }
     } catch (err) {
       console.error('[doctor] failed:', err);
       process.exitCode = 1;
