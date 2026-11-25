@@ -11,6 +11,11 @@ services:
       - KNOWLEDGE_STORE_PATH=/data/knowledge-store
       - INDEX_DB_PATH=/data/metadata/index.db
       - REVIEWER_NAME=${REVIEWER_NAME:-human-reviewer}
+      # Opt-in search telemetry for `gaps`: OFF unless CARDLOOM_TELEMETRY=local. Written to
+      # /data/metadata/telemetry.jsonl (the named volume), never to the knowledge store. Samples (the text of
+      # unanswered searches) are a separate opt-in: CARDLOOM_TELEMETRY_SAMPLES=1.
+      - CARDLOOM_TELEMETRY=${CARDLOOM_TELEMETRY:-off}
+      - CARDLOOM_TELEMETRY_SAMPLES=${CARDLOOM_TELEMETRY_SAMPLES:-0}
 
   cardloom-web:
     build: .

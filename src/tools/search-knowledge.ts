@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { searchCards, hasVerifiedCards, type SearchContext, type SearchOptions } from '../services/search-service.js';
 import { WRITE_BACK_REMINDER, EMPTY_STORE_HINT } from '../config/messages.js';
+import { classifyOutcome, recordSearch } from '../services/telemetry-service.js';
 
 export interface SearchKnowledgeArgs {
   query: string;
@@ -19,14 +20,15 @@ const SNIPPET_MAX_CHARS = 200;
 /**
  * `overrides` is not part of the MCP input schema: the server never passes it. The benchmark uses it to pin
  * ranking, fallback and the clock (`now`, which drives the stale flag and trust decay) per run while still
- * measuring the exact JSON this tool serialises.
+ * measuring the exact JSON this tool serialises. `telemetry: false` keeps a caller (the benchmark) out of the
+ * opt-in local telemetry even when `CARDLOOM_TELEMETRY=local` is set in the environment.
  */
 export function handleSearchKnowledge(
   db: Database.Database,
   args: SearchKnowledgeArgs,
-  overrides: Pick<SearchOptions, 'ranking' | 'fallback'> & { now?: Date } = {},
+  overrides: Pick<SearchOptions, 'ranking' | 'fallback'> & { now?: Date; telemetry?: boolean } = {},
 ) {
-  const { now, ...searchOverrides } = overrides;
+  const { now, telemetry, ...searchOverrides } = overrides;
   const opts: SearchOptions = {
     ...searchOverrides,
     context: args.context,
@@ -36,7 +38,18 @@ export function handleSearchKnowledge(
     limit: args.limit,
   };
 
+  const started = performance.now();
   const found = searchCards(db, args.query, opts, now);
+  const latencyMs = Math.round(performance.now() - started);
+
+  if (telemetry !== false) {
+    // Opt-in and best effort (AD-3/AD-4 amendment 2026-11-25): a telemetry failure must never change the response.
+    try {
+      recordSearch({ resultCount: found.length, outcome: classifyOutcome(found), latencyMs, query: args.query });
+    } catch {
+      // swallowed on purpose
+    }
+  }
 
   const results = found.map((item) => ({
     id: item.id,

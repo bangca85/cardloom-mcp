@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- New opt-in local telemetry and `gaps` command (owner decision D3, AD-3/AD-4 amendment 2026-11-25). With
+  `CARDLOOM_TELEMETRY=local`, each `search_knowledge` call appends one line to `telemetry.jsonl` beside the index:
+  time (UTC), result count, outcome (`answered`, `related_only`, `empty`) and latency in ms. Off by default: with the
+  variable unset the file is never created. Never recorded: card ids, results, context, repo names. A second opt-in,
+  `CARDLOOM_TELEMETRY_SAMPLES=1`, also records the text of unanswered searches (at most 200 characters, left out when
+  the secret scan flags it; the scan does not remove customer names or internal terms). Lines older than 90 days are
+  pruned at most once per UTC day per process, through a temp file and a rename. A write failure never changes the
+  response (one `[telemetry]` stderr line per process at most), and `benchmark` never records. `npx cardloom-mcp gaps
+  [--json]` (also `npm run gaps`) shows the counts, the first timestamp and, when text is recorded, the questions with no
+  direct answer; it needs no index or store.
 - `update_card_status` gains `action: "reconfirm"` (AD-9 amendment, owner decision 2026-11-25): on a `verified` card it
   refreshes `last_verified` to now and sets `verification_method` to `reconfirmed:<previous method>` (a single prefix),
   leaving `status`, `verified_by`, the usage counters and the event log alone; commit `knowledge: reconfirm <id> (by <actor>)`, where `<actor>` is `by`, else `REVIEWER_NAME` (default `human-reviewer`), cleaned to one line of at most 80 characters (`unknown` if empty); the card file does not carry it. Any

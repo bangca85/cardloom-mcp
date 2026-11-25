@@ -45,6 +45,7 @@ describe.skipIf(!built)('launcher usage and install', () => {
     expect(res.stderr).toContain('cardloom-mcp report');
     expect(res.stderr).toContain('cardloom-mcp upgrade-check');
     expect(res.stderr).toContain('cardloom-mcp reconfirm');
+    expect(res.stderr).toContain('cardloom-mcp gaps');
     expect(readdirSync(home)).toEqual([]);
   });
 
@@ -84,6 +85,8 @@ describe.skipIf(!built)('launcher usage and install', () => {
     ['upgrade-check', '-h', 'Usage: upgrade-check'],
     ['reconfirm', '--help', 'Usage: reconfirm'],
     ['reconfirm', '-h', 'Usage: reconfirm'],
+    ['gaps', '--help', 'Usage: gaps'],
+    ['gaps', '-h', 'Usage: gaps'],
   ])('%s %s prints that subcommand usage to stdout and exits 0', (sub, flag, usage) => {
     const res = launch([sub as string, flag as string], [emptyBin]);
     expect(res.code).toBe(0);
@@ -125,6 +128,25 @@ describe.skipIf(!built)('launcher usage and install', () => {
     expect(res.code).toBe(1);
     expect(res.stdout).toBe('');
     expect(res.stderr).toContain('Usage: reconfirm');
+    expect(readdirSync(home)).toEqual([]);
+  });
+
+  it.each([[['gaps', '--bogus']], [['gaps', 'extra']], [['gaps', '--days', '3']]])(
+    '%j prints the gaps usage to stderr, exits 1 and creates nothing',
+    (args) => {
+      const res = launch(args as string[], [emptyBin]);
+      expect(res.code).toBe(1);
+      expect(res.stdout).toBe('');
+      expect(res.stderr).toContain('Usage: gaps');
+      expect(readdirSync(home)).toEqual([]);
+    },
+  );
+
+  it('gaps on a home with no telemetry says so, exits 0 and creates nothing', () => {
+    const res = launch(['gaps'], [emptyBin]);
+    expect(res.code).toBe(0);
+    expect(res.stdout).toBe('No telemetry yet. Set CARDLOOM_TELEMETRY=local to start recording.\n');
+    expect(res.stderr).toBe('');
     expect(readdirSync(home)).toEqual([]);
   });
 

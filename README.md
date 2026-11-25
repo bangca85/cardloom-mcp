@@ -239,6 +239,8 @@ Every setting is an environment variable and every one is optional.
 | `REVIEW_FAILURE_THRESHOLD` | `2` | A card with this many `refuted` reports is flagged `needs_review`. |
 | `REVIEWER_NAME` | `human-reviewer` | Recorded as `verified_by` when a card is approved. |
 | `KNOWLEDGE_MACHINE_ID` | the host name | Names this machine's usage log (`events/<id>.jsonl`) so two machines never write the same file. |
+| `CARDLOOM_TELEMETRY` | off | `local` records how each search ended in `telemetry.jsonl` beside the index, for `gaps`. Anything else is off. See [Knowledge gaps](#knowledge-gaps). |
+| `CARDLOOM_TELEMETRY_SAMPLES` | off | `1` or `true` also records the text of searches that found no direct answer. A separate opt-in; read the warning under [Knowledge gaps](#knowledge-gaps). |
 | `PROMOTION_MODE` and the other `PROMOTION_*` | see [Merge promotion](#merge-promotion-npm-run-promote-merged) | Control `npm run promote-merged`. |
 | `PORT` | `3334` | Web viewer port. |
 | `GRAPH_GENERIC_STACK_TAGS`, `MAX_SHARED_STACK_GROUP_SIZE`, `MAX_SHARED_STACK_EDGES` | empty, `50`, `5000` | Web viewer graph tuning. |
@@ -562,6 +564,45 @@ is not in the map, or that has no version there, is an error naming it. `--json`
 `{ tech, from, to, stopApplying, startApplying, stillApplying }` with card ids. It reads the card files, changes
 nothing, and works without the server running.
 
+### Knowledge gaps
+
+`gaps` answers "what do agents ask that the store cannot answer?". It is built on opt-in local telemetry, which is
+**off by default**: with `CARDLOOM_TELEMETRY` unset the server never creates or writes the file.
+
+```
+$ CARDLOOM_TELEMETRY=local CARDLOOM_TELEMETRY_SAMPLES=1 npx cardloom-mcp   # in your agent's MCP config env
+$ npx cardloom-mcp gaps
+5 searches since 2026-11-20T09:12:00.000Z
+  answered: 2
+  related only: 1
+  empty: 2
+
+Questions with no direct answer
+  how to rotate the signing key (2)
+  retry budget for webhooks (1)
+```
+
+What is recorded, one JSON line per `search_knowledge` call: the time (UTC), the tool name, how many results came
+back, the outcome (`answered`: at least one direct match; `related_only`: only partial matches; `empty`: nothing),
+and the search time in milliseconds. That is all.
+
+What is never recorded: card ids, results or their text, the `context` you pass, repo names. The search text is
+recorded only when `CARDLOOM_TELEMETRY_SAMPLES` is `1` or `true`, only for searches that were not `answered`, cut to
+200 characters, and left out when the secret scan flags it. The secret scan looks for credentials; it does not
+remove customer names or internal terms, which is why the text is a second opt-in. Turn it on only if you are
+comfortable with questions typed by an agent being written to your disk.
+
+The file is `telemetry.jsonl` next to the index (`INDEX_DB_PATH`'s folder: `~/.cardloom` with `npx`, the
+`cardloom-metadata` volume in Docker). It is never inside the knowledge store, so it is never committed or synced,
+and nothing in trust, flags or ranking reads it. Lines older than 90 days are dropped, at most once per UTC day per
+server process. A failed write never changes a search response; it prints one `[telemetry]` line on stderr per
+process at most. `benchmark` never records, even with the switch on.
+
+`npx cardloom-mcp gaps` (or `npm run gaps`) reads the file; `--json` prints the report as JSON. It needs no index or
+store and creates nothing. Without the file it says `No telemetry yet. Set CARDLOOM_TELEMETRY=local to start recording.`
+"Questions with no direct answer" lists the unanswered texts (lower-cased, whitespace collapsed, same text grouped)
+by count, at most 10; when no line carries text it says search text is not recorded and how to turn it on.
+
 ## Ingesting an existing project
 
 Use the built-in prompt `distill_project_knowledge` to turn a repo's docs, architecture decisions, git
@@ -812,6 +853,7 @@ npm run triage-drafts   # read-only: drafts with the cards to compare them with
 npm run upgrade-check -- --to nextjs@15.0.0   # read-only: cards affected by a version change (needs .knowledge-map.yaml in the cwd)
 npm run report          # read-only: what the store did in the last 7 days (--days <n>, --json)
 npm run reconfirm -- --stale   # list stale verified cards; --confirm <id>@<hash> re-confirms them
+npm run gaps            # read-only: how searches ended and what found no answer (needs CARDLOOM_TELEMETRY=local, --json)
 npm run web             # local web viewer (List / Graph view) on http://127.0.0.1:3334
 npm run promote-merged  # list or verify drafts whose source commit was merged
 docker compose build && docker compose run --rm -i cardloom-mcp

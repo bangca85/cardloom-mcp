@@ -401,7 +401,8 @@ export function runBenchmark(
     const toolResponse = handleSearchKnowledge(
       db,
       { query: q.query, context: q.context, limit },
-      { ranking: opts.ranking, fallback: opts.fallback, now: opts.now },
+      // telemetry: false: measuring must never write to the user's telemetry file.
+      { ranking: opts.ranking, fallback: opts.fallback, now: opts.now, telemetry: false },
     );
     responseTokens.push(estimateToolJsonTokens(toolResponse.content[0]!.text));
 

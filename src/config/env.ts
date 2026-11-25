@@ -100,8 +100,25 @@ export const config = {
   get promotionBotName(): string {
     return process.env['PROMOTION_BOT_NAME'] ?? 'merge-bot';
   },
+  /**
+   * Opt-in local search telemetry (AD-3/AD-4 amendment 2026-11-25). Anything but `local` is `off`, so an unknown
+   * or empty value never starts recording.
+   */
+  get telemetryMode(): TelemetryMode {
+    return (process.env['CARDLOOM_TELEMETRY'] ?? '').trim().toLowerCase() === 'local' ? 'local' : 'off';
+  },
+  /** A second, separate opt-in: also write the text of searches that found no direct answer. */
+  get telemetrySamples(): boolean {
+    const raw = (process.env['CARDLOOM_TELEMETRY_SAMPLES'] ?? '').trim().toLowerCase();
+    return raw === '1' || raw === 'true';
+  },
+  /** Next to the index (a named volume in Docker), never in the knowledge store, so it is never committed. */
+  get telemetryPath(): string {
+    return path.join(path.dirname(config.indexDbPath), 'telemetry.jsonl');
+  },
 } as const;
 
+export type TelemetryMode = 'off' | 'local';
 export type PromotionMode = 'off' | 'review' | 'auto';
 export type SearchRankingMode = 'baseline' | 'x' | 'y';
 export type SearchFallbackMode = 'off' | 'tiered';
