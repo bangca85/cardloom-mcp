@@ -69,12 +69,18 @@ export function runUpgradeCheck(db: Database.Database, map: { stack: string[] },
       throw new UpgradeCheckError(`--to ${target} has no version: write it as ${tech}@<version>`);
     }
     // normalizeRange (facets-intersect) turns a value semver rejects (latest, canary, rc) into "*", which would
-    // make every card apply: refuse such versions instead of printing a confidently wrong list.
-    if (validRange(from) === null) {
-      throw new UpgradeCheckError(`"${from}" (${tech} in ${MAP_FILE}) is not a semver version or range: write a number such as ${tech}@15.0.0`);
-    }
-    if (validRange(to) === null) {
-      throw new UpgradeCheckError(`"${to}" (--to ${target}) is not a semver version or range: write a number such as ${tech}@15.0.0`);
+    // make every card apply (a bare x, * or empty range is also "*"): refuse such versions instead of printing a confidently wrong list.
+    for (const [value, source] of [
+      [from, `${tech} in ${MAP_FILE}`],
+      [to, `--to ${target}`],
+    ] as const) {
+      const range = validRange(value);
+      if (range === null) {
+        throw new UpgradeCheckError(`"${value}" (${source}) is not a semver version or range: write a number such as ${tech}@15.0.0`);
+      }
+      if (range === '*') {
+        throw new UpgradeCheckError(`"${value}" (${source}) is a wildcard, not a version: write a number such as ${tech}@15.0.0`);
+      }
     }
     return { tech, from, to };
   });

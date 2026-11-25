@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { validRange } from 'semver';
 import { initializeSchema } from '../../src/db/schema.js';
 import {
   formatUpgradeCheck,
@@ -130,7 +131,17 @@ describe('runUpgradeCheck', () => {
     expect(() => runUpgradeCheck(db, { stack: ['next@latest'] }, ['next@15.0.0'])).toThrow(/"latest" \(next in \.knowledge-map\.yaml\) is not a semver/);
   });
 
-  it.each([['15'], ['15.0.0'], ['15.0.0-rc.1'], ['15.x']])('accepts the version or range %s', (v) => {
+  it.each([['x'], ['*']])('refuses the wildcard --to next@%s, naming the value and the argument', (v) => {
+    expect(() => runUpgradeCheck(db, MAP, [`next@${v}`])).toThrow(new RegExp(`"${v === '*' ? '\\*' : v}" \\(--to next@${v === '*' ? '\\*' : v}\\) is a wildcard, not a version`));
+  });
+
+  it('refuses a wildcard map entry, naming the map', () => {
+    expect(() => runUpgradeCheck(db, { stack: ['next@*'] }, ['next@15.0.0'])).toThrow(/"\*" \(next in \.knowledge-map\.yaml\) is a wildcard, not a version/);
+    expect(() => runUpgradeCheck(db, { stack: ['next@x'] }, ['next@15.0.0'])).toThrow(/"x" \(next in \.knowledge-map\.yaml\) is a wildcard/);
+  });
+
+  it.each([['15'], ['15.0.0'], ['15.0.0-rc.1'], ['15.x']])('accepts the version or range %s (a concrete range, not *)', (v) => {
+    expect(validRange(v)).not.toBe('*');
     expect(() => runUpgradeCheck(db, MAP, [`next@${v}`])).not.toThrow();
   });
 
@@ -313,6 +324,18 @@ Body of ${title}.
     const res = await runUpgradeCheckCommand(store, cwd, { targets: ['next@15.0.0'], json: false });
     expect(res.exitCode).toBe(1);
     expect(res.stderr).toContain('"latest" (next in .knowledge-map.yaml) is not a semver');
+    for (const v of ['x', '*']) {
+      fs.writeFileSync(path.join(cwd, '.knowledge-map.yaml'), 'stack:\n  - next@14.2.0\n');
+      const to = await runUpgradeCheckCommand(store, cwd, { targets: [`next@${v}`], json: false });
+      expect(to.exitCode).toBe(1);
+      expect(to.stdout).toBe('');
+      expect(to.stderr).toContain(`"${v}" (--to next@${v}) is a wildcard, not a version`);
+    }
+    fs.writeFileSync(path.join(cwd, '.knowledge-map.yaml'), 'stack:\n  - "next@*"\n');
+    const map = await runUpgradeCheckCommand(store, cwd, { targets: ['next@15.0.0'], json: false });
+    expect(map.exitCode).toBe(1);
+    expect(map.stdout).toBe('');
+    expect(map.stderr).toContain('"*" (next in .knowledge-map.yaml) is a wildcard, not a version');
   });
 
   it('keeps stdout valid JSON and stderr quiet with empty/invalid card ranges in the store', async () => {
