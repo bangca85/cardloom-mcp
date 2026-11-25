@@ -24,6 +24,8 @@
     "gaps": "node dist/cli/gaps.js",
     "context": "node dist/cli/context.js",
     "promote-merged": "node dist/cli/promote-merged.js",
+    "eval": "tsx eval/run-eval.ts",
+    "typecheck:eval": "tsc -p tsconfig.eval.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "web": "tsx src/web/server.ts"

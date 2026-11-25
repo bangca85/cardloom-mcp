@@ -44,3 +44,6 @@ graphify/*
 .knowledge-map.yaml
 .npmrc
 .superpowers/
+
+# Agent-level eval output (maintainer-run, see eval/README.md).
+eval/results/

@@ -897,6 +897,15 @@ code 2 without scoring. Expected ids that exist but default search would never r
 `verified`, or `restricted`) only print a warning. Other operational problems (corrupt YAML, unreadable store) exit 1. If
 `benchmark/queries.yaml` doesn't exist yet, it says so and exits cleanly instead of erroring.
 
+## Evaluating
+
+The benchmark above measures retrieval. Whether an agent actually answers tasks better with cardloom is a
+separate question, and the repository carries a maintainer-run harness for it under
+[`eval/README.md`](https://github.com/bangca85/cardloom-mcp/blob/main/eval/README.md): three modes (top-5 search only,
+search then `get_card`, all eligible cards in the prompt), a rubric per task, and a dry run by default because a real run
+calls a paid model. It is not part of the npm package and never runs in CI. No number from its 8-task seed set is a claim
+about cardloom; a number may be quoted only with its raw table and task count.
+
 ## Commands
 
 ```bash

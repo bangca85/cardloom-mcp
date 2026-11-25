@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- New maintainer-run agent-level eval harness under `eval/` (owner decision D5; `npm run eval -- [--runs N] [--modes ...]
+  [--compact-pair] [--out dir]`, not shipped in the npm package, not run in CI): three modes (`top5`, `search_then_get`,
+  `read_all`), rubric scoring, pass rate, mean tokens (from API usage), p95 latency and `wrongOnRelatedOnly`, 8 synthetic
+  seed tasks, and a `get_card` full vs `compact` pair. A dry run is the default: it prints tasks x modes x runs and
+  exits 0, and nothing is called without `--confirm-spend`, `ANTHROPIC_API_KEY` and `EVAL_MODEL`. No new dependency
+  (Messages API through `fetch`); `npm run typecheck:eval` type-checks it.
 - `get_card` takes an optional `compact` argument (default false, so nothing changes unless it is asked for):
   `compact: true` returns the first 600 characters of the body followed by `…` and sets `truncated: true`; the cut is on a
   character boundary and never splits a surrogate pair. A body of 600 characters or fewer is returned unchanged with no

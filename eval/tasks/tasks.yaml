@@ -1,0 +1,64 @@
+# Seed eval tasks. Synthetic only (eval/fixtures). 8 tasks is a smoke set, not a basis for conclusions:
+# extend to 20-30 before drawing any (see eval/README.md).
+# `repo` is the project key of a fixture repo under eval/fixtures/repos/. `required_cards` are the card ids a
+# correct answer rests on; `exceptions` are caveats an answer must respect. Rubric items are substring checks.
+- id: ledger-amount-storage
+  repo: fixture/ledger-api
+  prompt: In ledger-api, how should I store and round money amounts?
+  required_cards: [decision-ledger-store-amounts-as-integer-minor-units]
+  rubric:
+    - must_include: [amount_minor]
+
+- id: notify-retry-policy
+  repo: fixture/notify-worker
+  prompt: A notification delivery failed in notify-worker. What is the retry policy and where do exhausted jobs go?
+  required_cards: [pattern-notify-retry-exponential-backoff-dead-letter]
+  rubric:
+    - must_include: [notify:dead]
+
+- id: ledger-month-end-lock
+  repo: fixture/ledger-api
+  prompt: The month-end close job in ledger-api hangs waiting on a row lock. Which timeout should it use?
+  required_cards: [gotcha-ledger-month-end-close-lock-hang]
+  exceptions:
+    - the month-end close job must not set lock_timeout; it uses statement_timeout
+  rubric:
+    - must_include: [statement_timeout]
+
+- id: ledger-out-of-order
+  repo: fixture/ledger-api
+  prompt: Posting a ledger entry fails with ERR_LEDGER_ENTRY_OUT_OF_ORDER. How do I recover?
+  required_cards: [gotcha-ledger-entry-out-of-order]
+  rubric:
+    - must_include: [expected_seq]
+
+- id: notify-tls-rotation-related-only
+  repo: fixture/notify-worker
+  prompt: How do we rotate the TLS certificates used by notify-worker?
+  required_cards: []
+  rubric:
+    - must_include: [no direct]
+    - must_not_include: [second active key]
+
+- id: ledger-pagination-superseded
+  repo: fixture/ledger-api
+  prompt: How should a new ledger-api list endpoint paginate its results?
+  required_cards: [decision-ledger-list-endpoints-cursor-pagination]
+  rubric:
+    - must_include: [cursor]
+    - must_not_include: ["?page="]
+
+- id: notify-dedupe-draft-conflict
+  repo: fixture/notify-worker
+  prompt: What dedupe window does notify-worker use for repeated notifications to the same recipient and template?
+  required_cards: [decision-notify-dedupe-window-ten-minutes]
+  rubric:
+    - must_include: [DEDUPE_WINDOW_SECONDS, "600"]
+    - must_not_include: ["86400"]
+
+- id: notify-shutdown
+  repo: fixture/notify-worker
+  prompt: How should the notify-worker queue consumer behave when it receives SIGTERM?
+  required_cards: [pattern-queue-consumer-drain-on-sigterm]
+  rubric:
+    - must_include: [DRAIN_TIMEOUT_MS]
