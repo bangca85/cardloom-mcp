@@ -39,7 +39,7 @@ draft. You decide what a draft becomes:
 | Tool | What it does |
 | --- | --- |
 | `search_knowledge` | Find cards by keywords or a pasted error message; returns compact results with a `match` label. |
-| `get_card` | Read one card in full (also available as the resource `knowledge://card/{id}`). |
+| `get_card` | Read one card in full (also available as the resource `knowledge://card/{id}`). Reports `replacement.pending` (a draft proposes to replace it; it is still the current answer) and `replacement.superseded_by` (read that card instead). |
 | `save_learning_draft` | Save a new card as a draft. |
 | `update_card_status` | Verify or deprecate a card; agents should call it only when you tell them to. |
 | `report_card_usage` | Report whether a card helped: `confirmed`, `refuted` or `neutral`. |

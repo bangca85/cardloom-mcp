@@ -148,7 +148,7 @@ export function createServer(db: Database.Database, knowledgeStorePath: string):
     {
       title: 'Get Card',
       description:
-        'Read a single knowledge card by id — full metadata, body, trust, and status labels (draft -> untrusted, deprecated -> deprecated + reason, restricted -> restricted). Same content as the knowledge://card/{id} Resource. Every response carries a write_back_reminder: after using this card you MUST call report_card_usage(id, outcome).',
+        'Read a single knowledge card by id — full metadata, body, trust, and status labels (draft -> untrusted, deprecated -> deprecated + reason, restricted -> restricted). Same content as the knowledge://card/{id} Resource. "replacement.pending": a draft proposes to replace this card; it is still the current answer, tell the user. "replacement.superseded_by": read that card instead. Every response carries a write_back_reminder: after using this card you MUST call report_card_usage(id, outcome).',
       inputSchema: {
         id: z.string().describe('Card id, e.g. "pattern-use-x-pattern"'),
       },

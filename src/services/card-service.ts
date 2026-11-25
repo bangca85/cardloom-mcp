@@ -285,6 +285,11 @@ export interface RenderedCardFlags {
   needs_review?: boolean;
 }
 
+export interface CardReplacement {
+  superseded_by?: string;
+  pending: string[];
+}
+
 export interface RenderedCard extends CardLabels {
   id: string;
   type: string;
@@ -312,6 +317,40 @@ export interface RenderedCard extends CardLabels {
   updated_at: string;
   trust: number;
   flags: RenderedCardFlags;
+  replacement?: CardReplacement;
+}
+
+const SUPERSEDED_REASON = /^superseded by (\S+)$/;
+
+/**
+ * Pending and completed replacement for one card (AD-13 trace). `superseded_by` is the id parsed from the
+ * exact `superseded by <id>` deprecation reason, kept only if that card exists and declares `supersedes` = this
+ * id. `pending` lists normal-sensitivity drafts that declare `supersedes` = this id; a deprecated card has none.
+ * Returns undefined when there is nothing to report.
+ */
+function computeReplacement(db: Database.Database, row: CardRow): CardReplacement | undefined {
+  const replacement: CardReplacement = { pending: [] };
+
+  const match = row.deprecation_reason ? SUPERSEDED_REASON.exec(row.deprecation_reason) : null;
+  if (match) {
+    const successor = db.prepare('SELECT supersedes FROM cards WHERE id = ?').get(match[1]) as
+      | { supersedes: string | null }
+      | undefined;
+    if (successor?.supersedes === row.id) {
+      replacement.superseded_by = match[1];
+    }
+  }
+
+  if (row.status !== 'deprecated') {
+    const drafts = db
+      .prepare(
+        "SELECT id FROM cards WHERE supersedes = ? AND status = 'draft' AND sensitivity = 'normal' ORDER BY id",
+      )
+      .all(row.id) as Array<{ id: string }>;
+    replacement.pending = drafts.map((d) => d.id);
+  }
+
+  return replacement.superseded_by !== undefined || replacement.pending.length > 0 ? replacement : undefined;
 }
 
 export function computeCardFlags(
@@ -380,6 +419,8 @@ export function renderCard(db: Database.Database, id: string, now: Date = new Da
     console.warn(`[card-service] Failed to parse conflicts_with for card ${row.id}:`, err);
   }
 
+  const replacement = computeReplacement(db, row);
+
   return {
     id: row.id,
     type: row.type,
@@ -407,6 +448,7 @@ export function renderCard(db: Database.Database, id: string, now: Date = new Da
     updated_at: row.updated_at,
     trust,
     flags,
+    ...(replacement ? { replacement } : {}),
     ...labels,
   };
 }

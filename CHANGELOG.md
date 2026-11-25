@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- `get_card` (and the `knowledge://card/{id}` resource) now report a replacement: `replacement.pending` lists
+  drafts that propose to replace the card (it is still the current answer), and `replacement.superseded_by`
+  names the verified card that replaced it. The field is absent when neither applies.
 - Rejecting a draft now has a convention: start the deprecation reason with `rejected:`. The web viewer
   shows a "Reject" button on drafts that does this for you. The `distill_project_knowledge` prompt tells
   the agent not to save a learning a human already rejected.
