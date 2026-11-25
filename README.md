@@ -393,14 +393,19 @@ architecture or security call.
 (`--agent claude|codex|gemini` limits it, and it can be repeated). Without `--yes` it prints the plan and changes
 nothing.
 
-- It skips registering when a server named exactly `cardloom` already runs `cardloom-mcp`, and writes the
-  instructions anyway. If `cardloom` exists with another command (a dev checkout, say), it leaves that entry
+- It skips registering when a server named exactly `cardloom` already runs `cardloom-mcp` (for Claude Code only
+  a user-scope entry counts: a local or project-scope one is not global, so `cardloom` is registered again at
+  user scope), and writes the instructions anyway. If `cardloom` exists with another command (a dev checkout, say), it leaves that entry
   alone, says so, and writes no instructions for that agent. A server named `cardloom-dev` is not touched.
 - The instruction block goes between `<!-- cardloom:start -->` and `<!-- cardloom:end -->`; text outside the
   markers is never changed and a second run replaces the block instead of adding another. If a marker is
   unmatched or repeated, that agent fails and its file is left as it was. A file that already has the
-  ``## Knowledge Hub (MCP `cardloom`)`` section pasted without markers is left alone too.
+  ``## Knowledge Hub (MCP `cardloom`)`` section pasted without markers is left alone too, with a note saying to wrap it in the
+  markers or delete it so a later run can keep it current.
 - Any agent that fails makes the command exit 1 with a summary; run it again to finish the rest.
+- Even without `--yes` it runs `claude mcp get cardloom` and `gemini mcp list` (and `codex mcp list --json`) to see
+  what is registered, and the first two may start the MCP servers you have configured. They run from an empty
+  temporary directory, so only user-level entries are seen.
 
 To do it by hand, register the server for every project and put the instruction block above in the client's global file:
 
@@ -441,12 +446,15 @@ until it is verified. To promote or retire one:
   deleted) and disappears from default search, but stays readable via `get_card`.
 - **Reject a draft:** when the learning is wrong, a duplicate or not worth keeping, start the reason
   with `rejected:` (for example `rejected: duplicate of pattern-foo`). The web viewer's "Reject" button
-  on a draft does this for you. `distill_project_knowledge` reads that prefix and will not save the same
-  learning again unless the new draft says what is different.
+  on a draft does this for you. `distill_project_knowledge` reads that prefix and tells the agent not to save
+  the same learning again unless the new draft says what is different.
 
 `npm run doctor` shows how review is going: drafts waiting (and the age of the oldest), cards approved by
 a human, by merge promotion, rejected, and retired before review, and the human approval rate (of drafts a
-human approved or rejected; merge promotion and retired drafts are listed beside it, not in it). A draft's
+human approved or rejected; merge promotion and retired drafts are listed beside it, not in it). A card counts
+as merge promotion only when its `verification_method` is exactly what `promote-merged` writes in `auto` mode
+(`merged:<repo>@<sha> (<via> <date>)`); the same evidence with `+chat-approval` after it, which is what you get
+when you approve a candidate in chat, counts as a human approval. A draft's
 age is counted from the commit that added the card when the store is a git repository, otherwise from the
 card file's modification time.
 
@@ -457,7 +465,7 @@ with `supersedes` pointing at the old one and approve it.
 
 `npx cardloom-mcp triage` (or `npm run triage-drafts` from a clone) lists every draft with the cards you may
 want to look at before deciding: same type and a similar title (Jaccard overlap of the title words, 0.5 or
-more) or overlapping facets, plus the card the draft `supersedes`. Each line shows the card's status, title
+more) or overlapping facets, plus the card the draft `supersedes` (shown as `this draft replaces it`). Each line shows the card's status, title
 similarity, whether the facets overlap and whether it is the same project. It also says when that card was
 already replaced (`superseded by <id>`) or rejected. Drafts with nothing to compare are listed under "No
 related card". The report is evidence only: it gives no verdict and changes nothing, and facet overlap does

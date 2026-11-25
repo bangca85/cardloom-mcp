@@ -1,8 +1,12 @@
 /** Deprecation reasons that start with this prefix mean "a human turned this draft down". */
 export const REJECTED_PREFIX = 'rejected:';
 
-/** Prefix `source_commit` provenance takes in `verification_method` when merge promotion verified a card. */
-const MERGE_PROMOTION_PREFIX = 'merged:';
+/**
+ * The exact `verification_method` `promote-merged` writes in `PROMOTION_MODE=auto`:
+ * `merged:<repo>@<sha> (<via> <date>)`. In review mode a human approves in chat and the agent appends
+ * `+chat-approval` to that same evidence, so a suffix after the closing parenthesis means a human approved.
+ */
+const MERGE_PROMOTION_METHOD = /^merged:\S+@[0-9a-f]+ \([^)]*\)$/i;
 
 /** True when a deprecation reason is a rejection (case-insensitive, leading whitespace ignored). */
 export function isRejectionReason(reason: string | null | undefined): boolean {
@@ -10,8 +14,12 @@ export function isRejectionReason(reason: string | null | undefined): boolean {
   return reason.trimStart().toLowerCase().startsWith(REJECTED_PREFIX);
 }
 
-/** True when a card was verified by merge promotion (identified by `verification_method`, never `verified_by`). */
+/**
+ * True when merge promotion verified the card on its own: `verification_method` is exactly the auto-mode form.
+ * The same evidence with a `+chat-approval` suffix (review mode) is a human approval and returns false.
+ * Identified by `verification_method`, never `verified_by`.
+ */
 export function isMergePromotion(verificationMethod: string | null | undefined): boolean {
   if (typeof verificationMethod !== 'string') return false;
-  return verificationMethod.startsWith(MERGE_PROMOTION_PREFIX);
+  return MERGE_PROMOTION_METHOD.test(verificationMethod);
 }

@@ -12,9 +12,11 @@ All notable changes to this project will be documented in this file.
   command runs `cardloom-mcp`; another command is left unchanged and gets no instructions, and `cardloom-dev`
   is never touched. Agents are handled independently, a failure exits 1, and re-running finishes the rest without
   duplicating the block. `--help` / `-h` print the usage and exit 0. Does not create `~/.cardloom`.
-  Detection runs from your home directory and, for Claude Code, only a user-scope `cardloom` counts as registered (a
-  project-scope one is registered again at user scope). Instruction files are written through a temp file and a
-  rename, so a failed write cannot truncate them and a symlinked file stays a symlink.
+  Detection runs from an empty temporary directory (removed afterwards), so for Claude Code only a user-scope
+  `cardloom` counts as registered (a local or project-scope one is registered again at user scope, and a second
+  run reports it as already registered). An unreadable `gemini mcp list` is never read as "no cardloom entry": the
+  agent is left unchanged. Instruction files are written through a temp file and a rename, so a failed write
+  cannot truncate them, a symlinked file stays a symlink and the file keeps its permissions.
   The block lives in `src/config/agent-instructions.ts`; a test fails if it differs from the README.
 - README: new FAQ "How is cardloom different from other agent memory tools?" and `tests/readme-claims.test.ts`,
   which fails if the README links no `trust-guarantees` test or contains a forbidden claim pattern.
@@ -38,11 +40,14 @@ All notable changes to this project will be documented in this file.
   shows a "Reject" button on drafts that does this for you. The `distill_project_knowledge` prompt tells
   the agent not to save a learning a human already rejected.
 - `doctor` reports review stats: drafts waiting (and the age of the oldest), cards approved by a human,
-  by merge promotion, rejected, and retired before review, plus the human approval rate.
+  by merge promotion, rejected, and retired before review, plus the human approval rate. Merge promotion means
+  the exact `verification_method` `promote-merged` writes in `auto` mode; `merged:...+chat-approval` (a human
+  approving a candidate in chat) counts as a human approval.
 - New `triage` command (`npx cardloom-mcp triage`, `npm run triage-drafts`): lists each draft with the cards
   worth comparing it with before you decide (similar title, overlapping facets, the card it supersedes,
   whether that card was already replaced or rejected). It reports evidence only, never a verdict, and is
-  read-only. `--limit <n>` examines the oldest n drafts; `--json` prints the report as JSON.
+  read-only. `--limit <n>` examines the oldest n drafts; `--json` prints the report as JSON; `--help` / `-h` print
+  the usage and exit 0.
 
 ## 1.1.2
 

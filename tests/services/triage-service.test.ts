@@ -121,7 +121,7 @@ describe('triageDrafts', () => {
 
   it('shows the supersede target first, in any type, and what already replaced it', () => {
     insertCard(db, { id: 'pattern-x', status: 'deprecated', type: 'gotcha', title: 'Totally unrelated words', stack: ['rust'], deprecation_reason: 'superseded by pattern-y' });
-    insertCard(db, { id: 'pattern-y', title: 'Other thing', stack: ['rust'] });
+    insertCard(db, { id: 'pattern-y', title: 'Other thing', stack: ['rust'], supersedes: 'pattern-x' });
     insertCard(db, { id: 'pattern-d', status: 'draft', title: 'Cache the token', supersedes: 'pattern-x', stack: ['node'] });
     insertCard(db, { id: 'pattern-sim', title: 'Cache the token', stack: ['go'] });
     const entry = triageDrafts(db, { now: NOW }).withRelated[0]!;
@@ -129,6 +129,21 @@ describe('triageDrafts', () => {
     expect(entry.related.map((r) => r.id)).toEqual(['pattern-x', 'pattern-sim']);
     expect(entry.related[0]).toMatchObject({ isSupersedeTarget: true, alreadySupersededBy: 'pattern-y' });
     expect(entry.related[0]!.rejectionReason).toBeUndefined();
+  });
+
+  it('does not report alreadySupersededBy when the named successor does not declare supersedes', () => {
+    insertCard(db, { id: 'pattern-x', status: 'deprecated', title: 'Cache the token', stack: ['rust'], deprecation_reason: ' superseded by pattern-y ' });
+    insertCard(db, { id: 'pattern-y', title: 'Other thing', stack: ['rust'] });
+    insertCard(db, { id: 'pattern-d', status: 'draft', title: 'Cache the token', stack: ['node'] });
+    const rel = triageDrafts(db, { now: NOW }).withRelated[0]!.related.find((r) => r.id === 'pattern-x')!;
+    expect(rel.alreadySupersededBy).toBeUndefined();
+  });
+
+  it('does not report alreadySupersededBy when the named successor does not exist', () => {
+    insertCard(db, { id: 'pattern-x', status: 'deprecated', title: 'Cache the token', stack: ['rust'], deprecation_reason: 'superseded by pattern-gone' });
+    insertCard(db, { id: 'pattern-d', status: 'draft', title: 'Cache the token', stack: ['node'] });
+    const rel = triageDrafts(db, { now: NOW }).withRelated[0]!.related.find((r) => r.id === 'pattern-x')!;
+    expect(rel.alreadySupersededBy).toBeUndefined();
   });
 
   it('reports sameProject true/false/null from normalized project keys', () => {

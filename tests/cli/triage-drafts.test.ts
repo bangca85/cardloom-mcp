@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { formatTriageReport, runTriage } from '../../src/cli/triage-drafts.js';
+import { formatTriageReport, parseTriageArgs, runTriage } from '../../src/cli/triage-drafts.js';
 import type { TriageReport } from '../../src/services/triage-service.js';
 
 function card(title: string, status: 'draft' | 'verified' | 'deprecated', extra = ''): string {
@@ -97,7 +97,7 @@ describe('formatTriageReport', () => {
     expect(out).toContain('Compare before deciding');
     expect(out).toContain('pattern-enable');
     expect(out).toContain('verified gotcha-x · title 0.67 · same facets · other project');
-    expect(out).toContain('replaces this card');
+    expect(out).toContain('this draft replaces it');
     expect(out).toContain('already replaced by pattern-y');
     expect(out).toContain('rejected: duplicate');
   });
@@ -172,5 +172,17 @@ describe('runTriage', () => {
     const before = fs.readdirSync(tmp).sort();
     await runTriage(tmp, {});
     expect(fs.readdirSync(tmp).sort()).toEqual(before);
+  });
+});
+
+describe('parseTriageArgs', () => {
+  it('reads --limit and --json', () => {
+    expect(parseTriageArgs(['--limit', '3', '--json'])).toEqual({ limit: 3, json: true });
+  });
+  it.each([['--help'], ['-h'], ['--json', '-h']])('%j asks for the usage', (...argv) => {
+    expect(parseTriageArgs(argv)?.help).toBe(true);
+  });
+  it.each([['--limit'], ['--limit', 'x'], ['--bogus']])('rejects %j', (...argv) => {
+    expect(parseTriageArgs(argv)).toBeNull();
   });
 });

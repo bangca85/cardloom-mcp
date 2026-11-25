@@ -214,6 +214,24 @@ describe('runDoctor review stats', () => {
     expect(text).toContain('Human approval rate: 67% of drafts a human approved or rejected (2 of 3)');
   });
 
+  it('counts a human approval in review mode (merged evidence plus +chat-approval) as approved by a human', async () => {
+    writeAged(
+      tmp,
+      'pattern-f.md',
+      cardFile({
+        title: 'F',
+        status: 'verified',
+        verifiedBy: 'alice',
+        method: 'merged:acme/app@abc1234 (pr #1 merged)+chat-approval',
+      }),
+      5,
+    );
+    const report = await runDoctor(tmp, path.join(tmp, 'index.db'), NOW);
+    expect(report.review.approvedByHuman).toBe(1);
+    expect(report.review.approvedByMergePromotion).toBe(0);
+    expect(report.review.humanApprovalRate).toBe(1);
+  });
+
   it('reports no drafts and a null approval rate for an empty store', async () => {
     const report = await runDoctor(tmp, path.join(tmp, 'index.db'), NOW);
     expect(report.review).toEqual({
@@ -243,7 +261,12 @@ function gitCommitAll(store: string, message: string, daysAgo: number): void {
   execFileSync('git', ['add', '-A'], { cwd: store, env });
   execFileSync(
     'git',
-    ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', message],
+    [
+      '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+      // Hermetic: a user's global hooks or signing must not affect the test.
+      '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null',
+      'commit', '-q', '-m', message,
+    ],
     { cwd: store, env },
   );
 }

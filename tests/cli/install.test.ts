@@ -1,4 +1,7 @@
+import * as nodeFs from 'node:fs';
 import { readFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AGENT_INSTRUCTIONS } from '../../src/config/agent-instructions.js';
@@ -161,12 +164,32 @@ describe('detectEntry', () => {
   });
 
   it('gemini: colour codes in the output do not hide the entry', async () => {
-    const coloured = '\u001b[32m✓\u001b[39m cardloom: npx -y cardloom-mcp (stdio) - Connected\n';
+    const coloured = 'Configured MCP servers:\n\n\u001b[32m✓\u001b[39m cardloom: npx -y cardloom-mcp (stdio) - Connected\n';
     expect(await detectEntry('gemini', fakeRunner(() => ok(coloured)))).toBe('ours');
   });
 
+  it('gemini: a list of only other servers under the header is absent', async () => {
+    const out = 'Configured MCP servers:\n\n✓ example-search: https://search.example.invalid/mcp (http) - Connected\n';
+    expect(await detectEntry('gemini', fakeRunner(() => ok('', out)))).toBe('absent');
+  });
+
+  it('gemini: the exact no-servers text is absent', async () => {
+    expect(await detectEntry('gemini', fakeRunner(() => ok('', 'No MCP servers configured.\n')))).toBe('absent');
+  });
+
+  it.each([
+    ['empty output', ''],
+    ['an unrecognised header', 'MCP servers:\n\n✓ example-search: https://search.example.invalid/mcp (http) - Connected\n'],
+    ['text that is not a list', 'something went sideways\n'],
+    ['an unparsed line naming cardloom', 'Configured MCP servers:\n\n? cardloom (stdio) npx -y cardloom-mcp\n'],
+    ['a new glyph-less line under the header', 'Configured MCP servers:\n\ncardloom: node /x/cardloom-fork/dist/index.js (stdio)\n'],
+    ['an unparsed line before the header naming cardloom', 'note: cardloom: broken\nConfigured MCP servers:\n'],
+  ])('gemini: %s is foreign and never read as absent', async (_label, out) => {
+    expect(await detectEntry('gemini', fakeRunner(() => ok('', out)))).toBe('foreign');
+  });
+
   it('gemini: an extension-provided cardloom is foreign', async () => {
-    const out = '✓ cardloom (from some-extension): npx -y cardloom-mcp (stdio) - Connected\n';
+    const out = 'Configured MCP servers:\n\n✓ cardloom (from some-extension): npx -y cardloom-mcp (stdio) - Connected\n';
     expect(await detectEntry('gemini', fakeRunner(() => ok(out)))).toBe('foreign');
   });
 
@@ -197,6 +220,9 @@ function fakeFs(initial: Record<string, string> = {}, opts: { failOn?: 'write' |
   const links = new Map(Object.entries(opts.links ?? {}));
   const writes: string[] = [];
   const dirs: string[] = [];
+  const temps: string[] = [];
+  const removed: string[] = [];
+  const chmods: Array<[string, number]> = [];
   const real = (p: string): string => links.get(p) ?? p;
   const fs = {
     existsSync: (p: string) => files.has(real(p)),
@@ -220,14 +246,27 @@ function fakeFs(initial: Record<string, string> = {}, opts: { failOn?: 'write' |
       writes.push(to);
     },
     rmSync: (p: string) => {
+      removed.push(p);
       files.delete(p);
+    },
+    statSync: (p: string) => {
+      if (!files.has(real(p))) throw new Error(`ENOENT ${p}`);
+      return { mode: 0o100644 };
+    },
+    chmodSync: (p: string, mode: number) => {
+      chmods.push([p, mode]);
+    },
+    mkdtempSync: (prefix: string) => {
+      const dir = `${prefix}${temps.length}`;
+      temps.push(dir);
+      return dir;
     },
     mkdirSync: (p: string) => {
       dirs.push(p);
       return undefined;
     },
   };
-  return { fs: fs as unknown as Parameters<typeof runInstall>[3], files, writes, dirs, links };
+  return { fs: fs as unknown as Parameters<typeof runInstall>[3], files, writes, dirs, links, temps, removed, chmods };
 }
 
 const ABSENT_ALL: Handler = (cmd, args) => {
@@ -321,12 +360,79 @@ describe('runInstall', () => {
     expect(none.lines).toEqual(['No supported agent CLI found (looked for gemini).']);
   });
 
-  it('runs the detection commands from the home directory', async () => {
-    const { fs } = fakeFs({ '/bin/claude': '', '/bin/codex': '', '/bin/gemini': '' });
+  it('runs every detection command from one empty temp directory that is removed afterwards', async () => {
+    const { fs, temps, removed } = fakeFs({ '/bin/claude': '', '/bin/codex': '', '/bin/gemini': '' });
     const runner = fakeRunner(ABSENT_ALL);
     await runInstall({ pathDirs: ['/bin'], home: '/h' }, { yes: false }, runner, fs);
     expect(runner.calls).toHaveLength(3);
-    expect(runner.cwds).toEqual(['/h', '/h', '/h']);
+    expect(temps).toHaveLength(1);
+    expect(temps[0]?.startsWith(path.join(os.tmpdir(), 'cardloom-install-'))).toBe(true);
+    expect(runner.cwds).toEqual([temps[0], temps[0], temps[0]]);
+    expect(runner.cwds).not.toContain('/h');
+    expect(removed).toContain(temps[0]);
+  });
+
+  it('removes the temp directory when an agent check fails too', async () => {
+    const { fs, temps, removed } = fakeFs({ '/bin/claude': '' });
+    const runner = fakeRunner(() => fail('claude is on fire'));
+    const res = await runInstall({ pathDirs: ['/bin'], home: '/h' }, { yes: true }, runner, fs);
+    expect(res.exitCode).toBe(1);
+    expect(removed).toContain(temps[0]);
+  });
+
+  it('with the real file system the detection directory exists and is empty during the run, and is gone after', async () => {
+    const root = nodeFs.mkdtempSync(path.join(os.tmpdir(), 'cardloom-install-test-'));
+    try {
+      const bin = path.join(root, 'bin');
+      nodeFs.mkdirSync(bin);
+      nodeFs.writeFileSync(path.join(bin, 'claude'), '');
+      const seen: { cwd?: string; existed?: boolean; entries?: string[] } = {};
+      const runner: CommandRunner = {
+        async run(_cmd, args, opts) {
+          if (args[1] === 'get') {
+            seen.cwd = opts?.cwd;
+            seen.existed = opts?.cwd !== undefined && nodeFs.existsSync(opts.cwd);
+            seen.entries = opts?.cwd === undefined ? undefined : nodeFs.readdirSync(opts.cwd);
+            return fail(fixture('claude-get-absent.txt'));
+          }
+          return ok();
+        },
+      };
+      const res = await runInstall({ pathDirs: [bin], home: path.join(root, 'home') }, { yes: true }, runner, nodeFs);
+      expect(res.exitCode).toBe(0);
+      expect(seen.existed).toBe(true);
+      expect(seen.entries).toEqual([]);
+      expect(seen.cwd?.startsWith(path.join(os.tmpdir(), 'cardloom-install-'))).toBe(true);
+      expect(nodeFs.existsSync(seen.cwd as string)).toBe(false);
+    } finally {
+      nodeFs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('a second run after a successful first one sees the user-scope entry: ours, no register, block refreshed', async () => {
+    const { fs, files } = fakeFs({ '/bin/claude': '' });
+    let registered = false;
+    const runner = fakeRunner((cmd, args) => {
+      if (args[1] === 'get') return registered ? ok(fixture('claude-get-ours.txt')) : fail(fixture('claude-get-absent.txt'));
+      if (args[1] === 'add') {
+        registered = true;
+        return ok();
+      }
+      return undefined;
+    });
+    const env = { pathDirs: ['/bin'], home: '/h' };
+    const first = await runInstall(env, { yes: true }, runner, fs);
+    expect(first.exitCode).toBe(0);
+    expect(runner.calls.filter((c) => c[2] === 'add')).toHaveLength(1);
+
+    files.set('/h/.claude/CLAUDE.md', `# Mine\n${MARKER_START}\nstale\n${MARKER_END}\n`);
+    const second = await runInstall(env, { yes: true }, runner, fs);
+    expect(second.exitCode).toBe(0);
+    expect(runner.calls.filter((c) => c[2] === 'add')).toHaveLength(1);
+    const text = second.lines.join('\n');
+    expect(text).toContain('server already registered');
+    expect(text).toContain('instructions updated');
+    expect(files.get('/h/.claude/CLAUDE.md')).toBe(`# Mine\n${MARKER_START}\n${AGENT_INSTRUCTIONS}\n${MARKER_END}\n`);
   });
 
   it('a project-scope cardloom-mcp entry does not count as registered: the user-scope entry is added', async () => {
@@ -481,6 +587,16 @@ describe('runInstall', () => {
     },
   );
 
+  it('an unreadable gemini server list is left unchanged: no register, no instructions, exit 0', async () => {
+    const { fs, files } = fakeFs({ '/bin/gemini': '' });
+    const runner = fakeRunner((cmd, args) => (args[1] === 'list' ? ok('', '') : ok()));
+    const res = await runInstall({ pathDirs: ['/bin'], home: '/h' }, { yes: true }, runner, fs);
+    expect(res.exitCode).toBe(0);
+    expect(runner.calls.some((c) => c.includes('add'))).toBe(false);
+    expect(files.has('/h/.gemini/GEMINI.md')).toBe(false);
+    expect(res.lines.join('\n')).toContain("could not read gemini's server list; left unchanged");
+  });
+
   it('an entry already ours is not registered again, but its instructions are written', async () => {
     const { fs, files } = fakeFs({ '/bin/codex': '' });
     const runner = fakeRunner((cmd, args) => (args[1] === 'list' ? ok(fixture('codex-list-ours.json')) : undefined));
@@ -509,6 +625,58 @@ describe('runInstall', () => {
     expect(writes).toEqual([]);
   });
 
+  describe.skipIf(process.platform === 'win32')('file mode with the real file system', () => {
+    const codexOurs: CommandRunner = { run: async () => ok(fixture('codex-list-ours.json')) };
+
+    async function installInto(root: string): Promise<void> {
+      const bin = path.join(root, 'bin');
+      nodeFs.mkdirSync(bin, { recursive: true });
+      nodeFs.writeFileSync(path.join(bin, 'codex'), '');
+      const res = await runInstall({ pathDirs: [bin], home: path.join(root, 'home') }, { yes: true }, codexOurs, nodeFs);
+      expect(res.exitCode).toBe(0);
+    }
+
+    it('keeps the mode of an existing 0600 file', async () => {
+      const root = nodeFs.mkdtempSync(path.join(os.tmpdir(), 'cardloom-mode-'));
+      try {
+        const file = path.join(root, 'home', '.codex', 'AGENTS.md');
+        nodeFs.mkdirSync(path.dirname(file), { recursive: true });
+        nodeFs.writeFileSync(file, '# Mine\n', { mode: 0o600 });
+        nodeFs.chmodSync(file, 0o600);
+        await installInto(root);
+        expect(nodeFs.readFileSync(file, 'utf8')).toContain(MARKER_START);
+        expect(nodeFs.statSync(file).mode & 0o777).toBe(0o600);
+        expect(nodeFs.readdirSync(path.dirname(file))).toEqual(['AGENTS.md']);
+      } finally {
+        nodeFs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('a new file gets the default mode', async () => {
+      const root = nodeFs.mkdtempSync(path.join(os.tmpdir(), 'cardloom-mode-'));
+      try {
+        await installInto(root);
+        const dir = path.join(root, 'home', '.codex');
+        const control = path.join(dir, 'control');
+        nodeFs.writeFileSync(control, '');
+        expect(nodeFs.statSync(path.join(dir, 'AGENTS.md')).mode & 0o777).toBe(nodeFs.statSync(control).mode & 0o777);
+      } finally {
+        nodeFs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+  });
+
+  it('applies the existing file mode to the temp file before the rename, and nothing for a new file', async () => {
+    const { fs, chmods } = fakeFs({ '/bin/codex': '', '/h/.codex/AGENTS.md': '# Mine\n' });
+    const runner = fakeRunner((cmd, args) => (args[1] === 'list' ? ok(fixture('codex-list-ours.json')) : undefined));
+    await runInstall({ pathDirs: ['/bin'], home: '/h' }, { yes: true }, runner, fs);
+    expect(chmods).toEqual([['/h/.codex/AGENTS.md.cardloom-tmp', 0o644]]);
+
+    const fresh = fakeFs({ '/bin/codex': '' });
+    await runInstall({ pathDirs: ['/bin'], home: '/h' }, { yes: true }, fakeRunner((cmd, args) => (args[1] === 'list' ? ok(fixture('codex-list-ours.json')) : undefined)), fresh.fs);
+    expect(fresh.chmods).toEqual([]);
+  });
+
   it('a broken marker pair fails that agent and leaves the file untouched', async () => {
     const broken = `# Mine\n${MARKER_START}\nno end marker\n`;
     const { fs, files, writes } = fakeFs({ '/bin/codex': '', '/h/.codex/AGENTS.md': broken });
@@ -529,6 +697,7 @@ describe('runInstall', () => {
     expect(writes).toEqual([]);
     expect(files.get('/h/.codex/AGENTS.md')).toBe(hand);
     expect(res.lines.join('\n')).toContain('already has a Knowledge Hub section');
+    expect(res.lines.join('\n')).toContain('wrap it in <!-- cardloom:start --> / <!-- cardloom:end --> or delete it to let install keep it current');
   });
 });
 
@@ -541,6 +710,9 @@ describe('parseInstallArgs', () => {
       yes: true,
       agents: ['claude', 'gemini'],
     });
+  });
+  it.each([['--help'], ['-h'], ['--yes', '--help']])('%j asks for the usage', (...argv) => {
+    expect(parseInstallArgs(argv)?.help).toBe(true);
   });
   it.each([['--agent'], ['--agent', 'cursor'], ['--force'], ['yes']])('rejects %j', (...argv) => {
     expect(parseInstallArgs(argv)).toBeNull();

@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 import { AGENT_INSTRUCTIONS } from '../config/agent-instructions.js';
 
@@ -22,7 +23,7 @@ export type EntryState = 'absent' | 'ours' | 'foreign';
 
 type InstallFs = Pick<
   typeof import('node:fs'),
-  'readFileSync' | 'writeFileSync' | 'mkdirSync' | 'existsSync' | 'renameSync' | 'realpathSync' | 'rmSync'
+  'readFileSync' | 'writeFileSync' | 'mkdirSync' | 'existsSync' | 'renameSync' | 'realpathSync' | 'rmSync' | 'mkdtempSync' | 'statSync' | 'chmodSync'
 >;
 
 export const MARKER_START = '<!-- cardloom:start -->';
@@ -83,8 +84,9 @@ function runsCardloomMcp(command: string, args: string[]): boolean {
 interface Inspection {
   state: EntryState;
   // foreign only: why the entry is kept as foreign when it is not simply "another command".
-  // unreadable: its command could not be read. scope: claude reports it outside user scope.
-  reason?: 'unreadable' | 'scope';
+  // unreadable: its command could not be read. scope: claude reports it outside user scope. list: the agent's
+  // server list could not be read, so an entry named cardloom may exist.
+  reason?: 'unreadable' | 'scope' | 'list';
 }
 
 const ours = (command: string, args: string[]): Inspection =>
@@ -113,8 +115,9 @@ async function inspectClaude(runner: CommandRunner, cwd: string | undefined): Pr
   if (command === undefined) return unreadable;
   const args = (/^\s*Args:\s*(.+?)\s*$/m.exec(r.stdout)?.[1] ?? '').split(/\s+/).filter((a) => a !== '');
   // Registration is at user scope; scopes are separate stores (`claude mcp add --scope` takes local, user or
-  // project), so only a user-scope entry can be "already registered". Run from the home directory, `get` does
-  // not see another project's local or project entries.
+  // project), so only a user-scope entry can be "already registered". install runs this from an empty temp
+  // directory, where `get` sees no local or project entry (a local one is keyed on the directory and would
+  // shadow the user-scope one).
   const scope = /^\s*Scope:\s*(.+?)\s*$/m.exec(r.stdout)?.[1];
   if (scope === undefined) return { state: 'foreign', reason: 'scope' };
   if (/^User config/i.test(scope)) return ours(command, args);
@@ -144,18 +147,40 @@ async function inspectCodex(runner: CommandRunner, cwd: string | undefined): Pro
   return ours(transport.command, args);
 }
 
-// `gemini mcp list` prints `<indicator> <name>[ (from <ext>)]: <command> <args> (stdio) - <Status>` per server,
-// to stderr, possibly with colour codes.
+// `gemini mcp list` prints `Configured MCP servers:` and then `<indicator> <name>[ (from <ext>)]: <command> <args>
+// (stdio) - <Status>` per server, or `No MCP servers configured.`; to stderr, possibly with colour codes. The
+// text is parsed strictly because `gemini mcp add` overwrites an existing `cardloom`: "absent" is returned only
+// for the no-servers text, or the header followed by lines that all parse and none of them named `cardloom`.
+// Anything else (empty output, another header, a line this parser does not understand) is kept as unreadable.
+const GEMINI_NO_SERVERS = 'No MCP servers configured.';
+const GEMINI_HEADER = 'Configured MCP servers:';
+const GEMINI_LINE = /^[^\s\w]+\s+(.+?): (.*)$/;
+const GEMINI_STATUS = /\s+- (?:Connected|Connecting|Blocked|Disabled|Disconnected)\s*$/;
+const unreadableList: Inspection = { state: 'foreign', reason: 'list' };
+
 async function inspectGemini(runner: CommandRunner, cwd: string | undefined): Promise<Inspection> {
   const r = await runner.run('gemini', ['mcp', 'list'], { cwd });
   if (r.code !== 0) throw failed('gemini mcp list', r);
   // eslint-disable-next-line no-control-regex
   const text = `${r.stdout}\n${r.stderr}`.replace(/\u001b\[[0-9;]*m/g, '');
-  for (const line of text.split('\n')) {
-    const m = /^\s*[^\s\w]+\s+(.+?): (.*)$/.exec(line);
-    if (m === null) continue;
-    const name = m[1] ?? '';
-    const rest = (m[2] ?? '').replace(/\s+- (?:Connected|Connecting|Blocked|Disabled|Disconnected)\s*$/, '');
+  const lines = text.split('\n').map((l) => l.trim()).filter((l) => l !== '');
+  const mentionsCardloom = (l: string): boolean => /(^|[^\w-])cardloom(:| \()/.test(l);
+
+  const header = lines.indexOf(GEMINI_HEADER);
+  const noServers = lines.includes(GEMINI_NO_SERVERS);
+  if (header === -1 && !noServers) return unreadableList;
+  if (header !== -1 && noServers) return unreadableList;
+  if (noServers) return lines.some(mentionsCardloom) ? unreadableList : { state: 'absent' };
+
+  // A line before the header that names cardloom cannot be placed: keep the entry as it is.
+  if (lines.slice(0, header).some(mentionsCardloom)) return unreadableList;
+  const entries: Array<{ name: string; rest: string }> = [];
+  for (const line of lines.slice(header + 1)) {
+    const m = GEMINI_LINE.exec(line);
+    if (m === null) return unreadableList;
+    entries.push({ name: m[1] ?? '', rest: (m[2] ?? '').replace(GEMINI_STATUS, '') });
+  }
+  for (const { name, rest } of entries) {
     if (name.startsWith(`${SERVER_NAME} (from `)) return { state: 'foreign' };
     if (name !== SERVER_NAME) continue;
     const stdio = /^(.*) \(stdio\)$/.exec(rest);
@@ -227,15 +252,19 @@ function planInstructions(file: string, fs: InstallFs): InstructionsPlan {
 
 /**
  * Writes next to the target and renames over it, so a failed write never truncates the user's file. A symlinked
- * target (dotfile managers) stays a symlink: the rename lands on the file it points to. The temp file is removed
- * on failure.
+ * target (dotfile managers) stays a symlink: the rename lands on the file it points to. An existing file's
+ * permissions are kept. The temp file is removed on failure.
  */
 function writeFileAtomically(file: string, content: string, fs: InstallFs): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const target = fs.existsSync(file) ? fs.realpathSync(file) : file;
+  const exists = fs.existsSync(file);
+  const target = exists ? fs.realpathSync(file) : file;
   const tmp = `${target}.cardloom-tmp`;
   try {
+    // The rename replaces the inode, so the file's permissions (a 0600 instruction file) are carried over by hand.
+    const mode = exists ? fs.statSync(target).mode & 0o7777 : undefined;
     fs.writeFileSync(tmp, content);
+    if (mode !== undefined) fs.chmodSync(tmp, mode);
     fs.renameSync(tmp, target);
   } catch (err) {
     try {
@@ -249,7 +278,7 @@ function writeFileAtomically(file: string, content: string, fs: InstallFs): void
 
 function describePlan(plan: InstructionsPlan, file: string, applied: boolean): string {
   if (plan.kind === 'current') return `instructions already up to date: ${file}`;
-  if (plan.kind === 'hand-written') return `instructions left alone: ${file} already has a Knowledge Hub section`;
+  if (plan.kind === 'hand-written') return `instructions left alone: ${file} already has a Knowledge Hub section; wrap it in ${MARKER_START} / ${MARKER_END} or delete it to let install keep it current`;
   const what =
     plan.verb === 'create' ? ['created', 'create'] : plan.verb === 'update' ? ['updated', 'update'] : ['added to', 'add to'];
   return applied ? `instructions ${what[0]}: ${file}` : `would ${what[1]} instructions: ${file}`;
@@ -257,6 +286,7 @@ function describePlan(plan: InstructionsPlan, file: string, applied: boolean): s
 
 const SCOPE_MESSAGE = 'cardloom found outside user scope; left unchanged';
 const FOREIGN_MESSAGE = 'existing cardloom entry uses another command; left unchanged';
+const LIST_MESSAGE = "could not read gemini's server list; left unchanged";
 
 interface AgentOutcome {
   lines: string[];
@@ -273,15 +303,17 @@ async function installAgent(
   yes: boolean,
   runner: CommandRunner,
   fs: InstallFs,
+  detectCwd: string,
 ): Promise<AgentOutcome> {
   const lines: string[] = [agent];
   const say = (text: string): number => lines.push(`  ${text}`);
   const registerCommand = `${agent} ${REGISTER[agent].join(' ')}`;
   const file = instructionsPath(agent, env);
   try {
-    const inspected = await inspectEntry(agent, runner, env.home);
+    const inspected = await inspectEntry(agent, runner, detectCwd);
     if (inspected.state === 'foreign') {
       if (inspected.reason === 'scope') say(SCOPE_MESSAGE);
+      else if (inspected.reason === 'list') say(LIST_MESSAGE);
       else say(FOREIGN_MESSAGE + (inspected.reason === 'unreadable' ? ' (its command could not be read, so it is treated as another command)' : ''));
       say('instructions not written for this agent');
       return { lines, ok: true };
@@ -336,10 +368,26 @@ export async function runInstall(
 
   const lines: string[] = [opts.yes ? `Installing cardloom-mcp for ${found.join(', ')}.` : `Plan for ${found.join(', ')} (nothing is changed).`, ''];
   const failedAgents: AgentId[] = [];
-  for (const agent of found) {
-    const outcome = await installAgent(agent, env, opts.yes, runner, fs);
-    lines.push(...outcome.lines, '');
-    if (!outcome.ok) failedAgents.push(agent);
+  // Detection runs from a fresh empty directory: `claude mcp get` and `gemini mcp list` then show only user-scope
+  // entries, never a local or project one keyed on the directory they happen to run in.
+  let detectCwd: string;
+  try {
+    detectCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cardloom-install-'));
+  } catch (err) {
+    return { lines: [`Cannot create a temporary directory to check the agents from: ${errorMessage(err)}`], exitCode: 1 };
+  }
+  try {
+    for (const agent of found) {
+      const outcome = await installAgent(agent, env, opts.yes, runner, fs, detectCwd);
+      lines.push(...outcome.lines, '');
+      if (!outcome.ok) failedAgents.push(agent);
+    }
+  } finally {
+    try {
+      fs.rmSync(detectCwd, { recursive: true, force: true });
+    } catch {
+      // best effort: an empty directory in the temp folder is harmless
+    }
   }
 
   if (!opts.yes) {
@@ -358,11 +406,13 @@ export async function runInstall(
 
 export const INSTALL_USAGE = 'Usage: install [--yes] [--agent claude|codex|gemini]...';
 
-export function parseInstallArgs(argv: string[]): { yes: boolean; agents?: AgentId[] } | null {
+/** `help` is set only when `--help` / `-h` was given: the caller prints the usage and exits 0. */
+export function parseInstallArgs(argv: string[]): { yes: boolean; agents?: AgentId[]; help?: true } | null {
   let yes = false;
   let agents: AgentId[] | undefined;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    if (a === '--help' || a === '-h') return { yes, agents, help: true };
     if (a === '--yes') yes = true;
     else if (a === '--agent') {
       const id = argv[++i];

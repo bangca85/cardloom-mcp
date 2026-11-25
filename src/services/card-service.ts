@@ -9,6 +9,7 @@ import { validateCardStrict, type Card } from '../types/card-schema.js';
 import { normalizeProjectKey } from '../utils/facets-intersect.js';
 import { generateSlug } from '../utils/slug-generator.js';
 import { daysSince } from '../utils/date.js';
+import { parseSupersededBy } from '../utils/supersede-trace.js';
 import { config } from '../config/env.js';
 import { ConflictError, NotFoundError, ValidationError, InvalidTransitionError } from '../types/errors.js';
 import { insertCardRelationsAndStacks } from '../db/schema.js';
@@ -320,8 +321,6 @@ export interface RenderedCard extends CardLabels {
   replacement?: CardReplacement;
 }
 
-const SUPERSEDED_REASON = /^superseded by (\S+)$/;
-
 /**
  * Pending and completed replacement for one card (AD-13 trace). `superseded_by` is the id parsed from the
  * exact `superseded by <id>` deprecation reason, kept only if that card exists and declares `supersedes` = this
@@ -331,13 +330,13 @@ const SUPERSEDED_REASON = /^superseded by (\S+)$/;
 function computeReplacement(db: Database.Database, row: CardRow): CardReplacement | undefined {
   const replacement: CardReplacement = { pending: [] };
 
-  const match = row.deprecation_reason ? SUPERSEDED_REASON.exec(row.deprecation_reason) : null;
-  if (match) {
-    const successor = db.prepare('SELECT supersedes FROM cards WHERE id = ?').get(match[1]) as
+  const successorId = parseSupersededBy(row.deprecation_reason);
+  if (successorId !== null) {
+    const successor = db.prepare('SELECT supersedes FROM cards WHERE id = ?').get(successorId) as
       | { supersedes: string | null }
       | undefined;
     if (successor?.supersedes === row.id) {
-      replacement.superseded_by = match[1];
+      replacement.superseded_by = successorId;
     }
   }
 

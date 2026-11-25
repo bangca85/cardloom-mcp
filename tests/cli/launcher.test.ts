@@ -60,6 +60,19 @@ describe.skipIf(!built)('launcher usage and install', () => {
     expect(readdirSync(home)).toEqual([]);
   });
 
+  it.each([
+    ['install', '--help', 'Usage: install'],
+    ['install', '-h', 'Usage: install'],
+    ['triage', '--help', 'Usage: triage'],
+    ['triage', '-h', 'Usage: triage'],
+  ])('%s %s prints that subcommand usage to stdout and exits 0', (sub, flag, usage) => {
+    const res = launch([sub as string, flag as string], [emptyBin]);
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain(usage);
+    expect(res.stderr).toBe('');
+    expect(readdirSync(home)).toEqual([]);
+  });
+
   it('install with bad arguments prints the install usage and exits 1', () => {
     const res = launch(['install', '--force'], [emptyBin]);
     expect(res.code).toBe(1);

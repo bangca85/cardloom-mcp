@@ -29,13 +29,20 @@ describe('isRejectionReason', () => {
 });
 
 describe('isMergePromotion', () => {
-  it('is true when verification_method starts with merged:', () => {
+  it('is true for the exact form promote-merged writes in auto mode', () => {
     expect(isMergePromotion('merged:acme/app@abc1234 (pr #1 merged)')).toBe(true);
+    expect(isMergePromotion('merged:acme/app@0123456789ab (pull-request 2026-11-20T10:00:00.000Z)')).toBe(true);
+  });
+
+  it('is false for a human approval in review mode, which keeps the evidence and adds +chat-approval', () => {
+    expect(isMergePromotion('merged:acme/app@abc1234 (pr #1 merged)+chat-approval')).toBe(false);
+    expect(isMergePromotion('merged:acme/app@abc1234 (pr #1 merged) +chat-approval')).toBe(false);
   });
 
   it('is false for other methods and empty values', () => {
     expect(isMergePromotion('chat-approval')).toBe(false);
     expect(isMergePromotion('manual-review merged:')).toBe(false);
+    expect(isMergePromotion('merged:')).toBe(false);
     expect(isMergePromotion('')).toBe(false);
     expect(isMergePromotion(null)).toBe(false);
     expect(isMergePromotion(undefined)).toBe(false);

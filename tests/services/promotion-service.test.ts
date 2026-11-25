@@ -22,7 +22,9 @@ const PAST = '2020-01-01T00:00:00Z';
 const FUTURE = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
 
 function gitIn(cwd: string, args: string[], date = PAST): string {
-  return execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', ...args], {
+  // core.hooksPath and commit.gpgsign: a user's global hooks or signing must not affect the test.
+  const hermetic = ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null'];
+  return execFileSync('git', [...hermetic, ...args], {
     cwd,
     env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
     encoding: 'utf-8',

@@ -28,6 +28,8 @@ if (arg === 'install') {
     if (args === null) {
       console.error(INSTALL_USAGE);
       process.exitCode = 1;
+    } else if (args.help) {
+      console.log(INSTALL_USAGE);
     } else {
       const env = {
         pathDirs: (process.env.PATH ?? '').split(path.delimiter),
@@ -66,6 +68,8 @@ if (arg === 'install') {
       if (args === null) {
         console.error(TRIAGE_USAGE);
         process.exitCode = 1;
+      } else if (args.help) {
+        console.log(TRIAGE_USAGE);
       } else {
         console.log(await runTriage(process.env.KNOWLEDGE_STORE_PATH, args));
       }

@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { facetsIntersect, normalizeProjectKey, type FacetSet } from '../utils/facets-intersect.js';
 import { isRejectionReason } from '../utils/rejection.js';
+import { parseSupersededBy } from '../utils/supersede-trace.js';
 import { jaccard, titleTokens } from '../utils/title-similarity.js';
 
 export interface RelatedEvidence {
@@ -15,7 +16,7 @@ export interface RelatedEvidence {
   sameProject: boolean | null;
   /** The draft's `supersedes` points at this card. */
   isSupersedeTarget: boolean;
-  /** The card is deprecated with the reason `superseded by <id>` (AD-13). */
+  /** The card is deprecated with the reason `superseded by <id>` and <id> exists and declares `supersedes` = this card (AD-13). */
   alreadySupersededBy?: string;
   /** The card is deprecated with a `rejected:` reason. */
   rejectionReason?: string;
@@ -48,7 +49,6 @@ export interface TriageOptions {
 const MAX_RELATED = 5;
 const SIMILARITY_THRESHOLD = 0.5;
 const DAY_MS = 86_400_000;
-const SUPERSEDED_BY_RE = /^superseded by (\S+)$/;
 
 interface Row {
   id: string;
@@ -98,7 +98,13 @@ function prepare(row: Row, addedAt: ReadonlyMap<string, number> | undefined): Pr
   };
 }
 
-function evidence(draft: Prepared, card: Prepared, similarity: number, facetsOverlap: boolean): RelatedEvidence {
+function evidence(
+  draft: Prepared,
+  card: Prepared,
+  similarity: number,
+  facetsOverlap: boolean,
+  byId: ReadonlyMap<string, Prepared>,
+): RelatedEvidence {
   const reason = card.row.status === 'deprecated' ? card.row.deprecation_reason : null;
   const out: RelatedEvidence = {
     id: card.row.id,
@@ -109,8 +115,9 @@ function evidence(draft: Prepared, card: Prepared, similarity: number, facetsOve
     sameProject: draft.project === '' || card.project === '' ? null : draft.project === card.project,
     isSupersedeTarget: draft.row.supersedes === card.row.id,
   };
-  const replacedBy = reason !== null ? SUPERSEDED_BY_RE.exec(reason.trim())?.[1] : undefined;
-  if (replacedBy !== undefined) out.alreadySupersededBy = replacedBy;
+  // Same rule as `get_card`'s `replacement.superseded_by`: the named card must exist and declare `supersedes` = this card.
+  const replacedBy = parseSupersededBy(reason);
+  if (replacedBy !== null && byId.get(replacedBy)?.row.supersedes === card.row.id) out.alreadySupersededBy = replacedBy;
   if (reason !== null && isRejectionReason(reason)) out.rejectionReason = reason;
   return out;
 }
@@ -153,7 +160,7 @@ export function triageDrafts(db: Database.Database, opts: TriageOptions = {}): T
     const target = draft.row.supersedes !== null ? byId.get(draft.row.supersedes) : undefined;
     if (target && target !== draft) {
       related.push(
-        evidence(draft, target, jaccard(draft.tokens, target.tokens), facetsIntersect(draft.facets, target.facets)),
+        evidence(draft, target, jaccard(draft.tokens, target.tokens), facetsIntersect(draft.facets, target.facets), byId),
       );
     }
     const found: RelatedEvidence[] = [];
@@ -162,7 +169,7 @@ export function triageDrafts(db: Database.Database, opts: TriageOptions = {}): T
       const similarity = jaccard(draft.tokens, card.tokens);
       const similar = similarity >= SIMILARITY_THRESHOLD;
       const overlap = facetsIntersect(draft.facets, card.facets);
-      if (similar || overlap) found.push(evidence(draft, card, similarity, overlap));
+      if (similar || overlap) found.push(evidence(draft, card, similarity, overlap, byId));
     }
     found.sort((a, b) => b.titleSimilarity - a.titleSimilarity || a.id.localeCompare(b.id));
     related.push(...found.slice(0, MAX_RELATED - related.length));

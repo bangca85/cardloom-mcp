@@ -19,7 +19,7 @@ function isDirectory(p: string): boolean {
 // The report states facts. A deprecated card is shown as "retired" so the output never reads as a command.
 function evidenceLine(r: RelatedEvidence): string {
   const parts = [`${r.status === 'deprecated' ? 'retired' : r.status} ${r.id}`, `title ${r.titleSimilarity.toFixed(2)}`];
-  if (r.isSupersedeTarget) parts.push('replaces this card');
+  if (r.isSupersedeTarget) parts.push('this draft replaces it');
   else if (r.facetsOverlap) parts.push('same facets');
   if (r.sameProject === true) parts.push('same project');
   else if (r.sameProject === false) parts.push('other project');
@@ -72,11 +72,13 @@ export async function runTriage(storePath: string, opts: { limit?: number; json?
 
 export const TRIAGE_USAGE = 'Usage: triage [--limit <n>] [--json]';
 
-export function parseTriageArgs(argv: string[]): { limit?: number; json: boolean } | null {
+/** `help` is set only when `--help` / `-h` was given: the caller prints the usage and exits 0. */
+export function parseTriageArgs(argv: string[]): { limit?: number; json: boolean; help?: true } | null {
   let limit: number | undefined;
   let json = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    if (a === '--help' || a === '-h') return { limit, json, help: true };
     if (a === '--json') json = true;
     else if (a === '--limit') {
       const n = Number(argv[++i]);
@@ -93,6 +95,10 @@ if (isMain) {
   if (args === null) {
     console.error(TRIAGE_USAGE);
     process.exit(1);
+  }
+  if (args.help) {
+    console.log(TRIAGE_USAGE);
+    process.exit(0);
   }
   runTriage(config.knowledgeStorePath, args)
     .then((out) => {
