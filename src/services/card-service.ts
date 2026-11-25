@@ -9,7 +9,7 @@ import { validateCardStrict, type Card } from '../types/card-schema.js';
 import { normalizeProjectKey } from '../utils/facets-intersect.js';
 import { generateSlug } from '../utils/slug-generator.js';
 import { daysSince } from '../utils/date.js';
-import { parseSupersededBy } from '../utils/supersede-trace.js';
+import { resolveSupersededBy } from '../utils/supersede-trace.js';
 import { cardSource, type CardSource } from '../utils/card-source.js';
 import { config } from '../config/env.js';
 import { ConflictError, NotFoundError, ValidationError, InvalidTransitionError } from '../types/errors.js';
@@ -326,6 +326,12 @@ export interface RenderedCard extends CardLabels {
   replacement?: CardReplacement;
 }
 
+/** `resolveSupersededBy` over the index: the one rule shared by `get_card`, triage and the D6 refusal. */
+function supersededByInIndex(db: Database.Database, cardId: string, reason: string | null | undefined): string | null {
+  const stmt = db.prepare('SELECT supersedes FROM cards WHERE id = ?');
+  return resolveSupersededBy(cardId, reason, (id) => (stmt.get(id) as { supersedes: string | null } | undefined)?.supersedes);
+}
+
 /**
  * Pending and completed replacement for one card (AD-13 trace). `superseded_by` is the id parsed from the
  * exact `superseded by <id>` deprecation reason, kept only if that card exists and declares `supersedes` = this
@@ -335,15 +341,8 @@ export interface RenderedCard extends CardLabels {
 function computeReplacement(db: Database.Database, row: CardRow): CardReplacement | undefined {
   const replacement: CardReplacement = { pending: [] };
 
-  const successorId = parseSupersededBy(row.deprecation_reason);
-  if (successorId !== null) {
-    const successor = db.prepare('SELECT supersedes FROM cards WHERE id = ?').get(successorId) as
-      | { supersedes: string | null }
-      | undefined;
-    if (successor?.supersedes === row.id) {
-      replacement.superseded_by = successorId;
-    }
-  }
+  const successorId = supersededByInIndex(db, row.id, row.deprecation_reason);
+  if (successorId !== null) replacement.superseded_by = successorId;
 
   if (row.status !== 'deprecated') {
     const drafts = db
@@ -497,8 +496,10 @@ export interface UpdateCardStatusResult {
 
 /**
  * D6 (AD-13 amendment): verifying a draft whose `supersedes` target is already deprecated with the reason
- * `superseded by <other-id>` (another card than the one being verified) is refused. A target deprecated for
- * any other reason, or one that does not exist, is not this function's business.
+ * `superseded by <other-id>` (another card than the one being verified) is refused, where "already replaced"
+ * is the same rule `get_card` uses: <other-id> exists and declares `supersedes` = the target. A target
+ * deprecated for any other reason (or naming a successor that does not exist), or one that does not exist,
+ * is not this function's business.
  */
 function assertNotAlreadySuperseded(
   db: Database.Database,
@@ -510,7 +511,7 @@ function assertNotAlreadySuperseded(
     | { status: Card['status']; deprecation_reason: string | null }
     | undefined;
   if (target?.status !== 'deprecated') return;
-  const other = parseSupersededBy(target.deprecation_reason);
+  const other = supersededByInIndex(db, targetId, target.deprecation_reason);
   if (other === null || other === newId) return;
   throw new InvalidTransitionError(
     fromStatus,

@@ -114,6 +114,28 @@ describe('updateCardStatus: verify refuses a second supersede', () => {
     expect(indexRow(a)).toMatchObject({ deprecation_reason: `superseded by ${b}` });
   });
 
+  it('does not refuse (and get_card shows no replacement) when the reason names a successor that does not exist', async () => {
+    const a = (await draft('Alpha retries')).id;
+    await updateCardStatus(db, storePath, { id: a, action: 'verify' });
+    await updateCardStatus(db, storePath, { id: a, action: 'deprecate', reason: 'superseded by pattern-typo' });
+    expect(renderCard(db, a).replacement).toBeUndefined();
+    const b = (await draft('Beta retries', a)).id;
+
+    const out = await updateCardStatus(db, storePath, { id: b, action: 'verify' });
+    expect(out.status).toBe('verified');
+  });
+
+  it('does not refuse when the named successor exists but does not declare supersedes = the target', async () => {
+    const a = (await draft('Alpha retries')).id;
+    await updateCardStatus(db, storePath, { id: a, action: 'verify' });
+    const other = (await draft('Unrelated rule', undefined, ['worker'])).id;
+    await updateCardStatus(db, storePath, { id: a, action: 'deprecate', reason: `superseded by ${other}` });
+    expect(renderCard(db, a).replacement).toBeUndefined();
+    const b = (await draft('Beta retries', a)).id;
+    const out = await updateCardStatus(db, storePath, { id: b, action: 'verify' });
+    expect(out.status).toBe('verified');
+  });
+
   it('verifies a draft without supersedes as before', async () => {
     const a = (await draft('Alpha retries')).id;
     const out = await updateCardStatus(db, storePath, { id: a, action: 'verify' });

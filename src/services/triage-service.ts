@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import { facetsIntersect, normalizeProjectKey, type FacetSet } from '../utils/facets-intersect.js';
 import { isRejectionReason } from '../utils/rejection.js';
-import { parseSupersededBy } from '../utils/supersede-trace.js';
+import { resolveSupersededBy } from '../utils/supersede-trace.js';
 import { jaccard, titleTokens } from '../utils/title-similarity.js';
 
 export interface RelatedEvidence {
@@ -116,8 +116,8 @@ function evidence(
     isSupersedeTarget: draft.row.supersedes === card.row.id,
   };
   // Same rule as `get_card`'s `replacement.superseded_by`: the named card must exist and declare `supersedes` = this card.
-  const replacedBy = parseSupersededBy(reason);
-  if (replacedBy !== null && byId.get(replacedBy)?.row.supersedes === card.row.id) out.alreadySupersededBy = replacedBy;
+  const replacedBy = resolveSupersededBy(card.row.id, reason, (id) => byId.get(id)?.row.supersedes);
+  if (replacedBy !== null) out.alreadySupersededBy = replacedBy;
   if (reason !== null && isRejectionReason(reason)) out.rejectionReason = reason;
   return out;
 }
