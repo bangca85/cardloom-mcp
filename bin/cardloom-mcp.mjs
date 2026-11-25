@@ -126,8 +126,7 @@ if (arg === 'install') {
     }
   } else if (arg === 'gaps') {
     try {
-      const { runGaps, parseGapsArgs, GAPS_USAGE } = await import('../dist/cli/gaps.js');
-      const { config } = await import('../dist/config/env.js');
+      const { runGapsCommand, parseGapsArgs, GAPS_USAGE } = await import('../dist/cli/gaps.js');
       const args = parseGapsArgs(process.argv.slice(3));
       if (args === null) {
         console.error(GAPS_USAGE);
@@ -135,7 +134,7 @@ if (arg === 'install') {
       } else if (args.help) {
         console.log(GAPS_USAGE);
       } else {
-        console.log(runGaps(config.telemetryPath, args));
+        console.log(runGapsCommand(args));
       }
     } catch (err) {
       console.error('[gaps] failed:', err);

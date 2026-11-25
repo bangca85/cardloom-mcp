@@ -13,10 +13,10 @@ let sandbox: string;
 let home: string;
 let emptyBin: string;
 
-function launch(args: string[], pathDirs: string[]) {
+function launch(args: string[], pathDirs: string[], extraEnv: Record<string, string> = {}) {
   const res = spawnSync(process.execPath, [launcher, ...args], {
     // No KNOWLEDGE_STORE_PATH / INDEX_DB_PATH / CODEX_HOME: the launcher must not reach for the real ones.
-    env: { PATH: pathDirs.join(':'), HOME: home },
+    env: { PATH: pathDirs.join(':'), HOME: home, ...extraEnv },
     encoding: 'utf8',
     timeout: 30_000,
   });
@@ -146,6 +146,17 @@ describe.skipIf(!built)('launcher usage and install', () => {
     const res = launch(['gaps'], [emptyBin]);
     expect(res.code).toBe(0);
     expect(res.stdout).toBe('No telemetry yet. Set CARDLOOM_TELEMETRY=local to start recording.\n');
+    expect(res.stderr).toBe('');
+    expect(readdirSync(home)).toEqual([]);
+  });
+
+  it('gaps with INDEX_DB_PATH inside the store says telemetry is not recorded, exits 0 and creates nothing', () => {
+    const store = join(home, 'kstore');
+    const res = launch(['gaps'], [emptyBin], { KNOWLEDGE_STORE_PATH: store, INDEX_DB_PATH: join(store, '.metadata', 'index.db') });
+    expect(res.code).toBe(0);
+    expect(res.stdout).toBe(
+      'Telemetry is not recorded while the index is inside the knowledge store. Set INDEX_DB_PATH or CARDLOOM_TELEMETRY_PATH outside it.\n',
+    );
     expect(res.stderr).toBe('');
     expect(readdirSync(home)).toEqual([]);
   });

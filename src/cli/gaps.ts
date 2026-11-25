@@ -1,5 +1,5 @@
 import { config } from '../config/env.js';
-import { buildGapsReport, readTelemetry, type GapsReport } from '../services/telemetry-service.js';
+import { buildGapsReport, isInsideStore, readTelemetry, type GapsReport } from '../services/telemetry-service.js';
 
 export const GAPS_USAGE = [
   'Usage: gaps [--json]',
@@ -42,11 +42,31 @@ export function formatGapsReport(r: GapsReport): string {
   return out.join('\n');
 }
 
-/** Read-only: needs neither the index nor the store, and creates nothing. Returns the text (or JSON) to print. */
-export function runGaps(filePath: string, opts: { json: boolean }): string {
-  const report = buildGapsReport(readTelemetry(filePath));
+const INSIDE_STORE_DEFAULT =
+  'Telemetry is not recorded while the index is inside the knowledge store. Set INDEX_DB_PATH or CARDLOOM_TELEMETRY_PATH outside it.';
+const INSIDE_STORE_OVERRIDE =
+  'Telemetry is not recorded while CARDLOOM_TELEMETRY_PATH is inside the knowledge store. Set INDEX_DB_PATH or CARDLOOM_TELEMETRY_PATH outside it.';
+
+/**
+ * Read-only: needs neither the index nor the store, and creates nothing. Returns the text (or JSON) to print.
+ * With `storePath` given, a file inside the store is never read: the writer refuses that path, so there is
+ * nothing to report (`--json` prints the zeroed report).
+ */
+export function runGaps(filePath: string, opts: { json: boolean; storePath?: string; overridden?: boolean }): string {
+  const inside = opts.storePath !== undefined && isInsideStore(filePath, opts.storePath);
+  if (inside && !opts.json) return opts.overridden === true ? INSIDE_STORE_OVERRIDE : INSIDE_STORE_DEFAULT;
+  const report = buildGapsReport(inside ? [] : readTelemetry(filePath));
   if (opts.json) return JSON.stringify(report, null, 2);
   return report.total === 0 ? NO_TELEMETRY : formatGapsReport(report);
+}
+
+/** Reads the configured path (the launcher and `npm run gaps` share it). */
+export function runGapsCommand(args: { json: boolean }): string {
+  return runGaps(config.telemetryPath, {
+    json: args.json,
+    storePath: config.knowledgeStorePath,
+    overridden: config.telemetryPathOverridden,
+  });
 }
 
 const isMain = process.argv[1] !== undefined && import.meta.url === `file://${process.argv[1]}`;
@@ -61,7 +81,7 @@ if (isMain) {
     process.exit(0);
   }
   try {
-    console.log(runGaps(config.telemetryPath, args));
+    console.log(runGapsCommand(args));
   } catch (err) {
     console.error('[gaps] failed:', err);
     process.exit(1);

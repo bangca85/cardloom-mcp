@@ -13,6 +13,24 @@ function parsePositiveIntEnv(val: string | undefined, defaultVal: number): numbe
   return num;
 }
 
+let warnedRelativeTelemetryPath = false;
+
+/** Test hook: forget that the relative-path note was printed. */
+export function resetConfigNotes(): void {
+  warnedRelativeTelemetryPath = false;
+}
+
+function telemetryPathOverride(): string | undefined {
+  const raw = process.env['CARDLOOM_TELEMETRY_PATH'];
+  if (raw === undefined || raw.trim() === '') return undefined;
+  if (path.isAbsolute(raw)) return raw;
+  if (!warnedRelativeTelemetryPath) {
+    warnedRelativeTelemetryPath = true;
+    console.error('[telemetry] CARDLOOM_TELEMETRY_PATH must be an absolute path; ignoring it.');
+  }
+  return undefined;
+}
+
 export const config = {
   get knowledgeStorePath(): string {
     return process.env['KNOWLEDGE_STORE_PATH'] ?? path.resolve('knowledge-store');
@@ -112,9 +130,18 @@ export const config = {
     const raw = (process.env['CARDLOOM_TELEMETRY_SAMPLES'] ?? '').trim().toLowerCase();
     return raw === '1' || raw === 'true';
   },
-  /** Next to the index (a named volume in Docker), never in the knowledge store, so it is never committed. */
+  /**
+   * `CARDLOOM_TELEMETRY_PATH` (an absolute file path) when set, else `telemetry.jsonl` next to the index (a named
+   * volume in Docker). A relative value is ignored with one stderr note. The telemetry service refuses to write
+   * a path inside the knowledge store, so it is never committed or synced.
+   */
   get telemetryPath(): string {
-    return path.join(path.dirname(config.indexDbPath), 'telemetry.jsonl');
+    const override = telemetryPathOverride();
+    return override ?? path.join(path.dirname(config.indexDbPath), 'telemetry.jsonl');
+  },
+  /** True when `CARDLOOM_TELEMETRY_PATH` is set to a usable (absolute) path. */
+  get telemetryPathOverridden(): boolean {
+    return telemetryPathOverride() !== undefined;
   },
 } as const;
 

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { initializeSchema } from '../../src/db/schema.js';
 import { handleSearchKnowledge } from '../../src/tools/search-knowledge.js';
+import { resetConfigNotes } from '../../src/config/env.js';
 import { resetTelemetryState } from '../../src/services/telemetry-service.js';
 import * as telemetry from '../../src/services/telemetry-service.js';
 
@@ -30,7 +31,7 @@ function insertCard(db: Database.Database, id: string, body: string): void {
   ).run({ id, title: `Title ${id}`, body });
 }
 
-const SAVED = ['CARDLOOM_TELEMETRY', 'CARDLOOM_TELEMETRY_SAMPLES', 'INDEX_DB_PATH'] as const;
+const SAVED = ['CARDLOOM_TELEMETRY', 'CARDLOOM_TELEMETRY_SAMPLES', 'CARDLOOM_TELEMETRY_PATH', 'INDEX_DB_PATH', 'KNOWLEDGE_STORE_PATH'] as const;
 
 describe('search_knowledge telemetry', () => {
   let db: Database.Database;
@@ -45,7 +46,10 @@ describe('search_knowledge telemetry', () => {
     file = path.join(dir, 'telemetry.jsonl');
     delete process.env['CARDLOOM_TELEMETRY'];
     delete process.env['CARDLOOM_TELEMETRY_SAMPLES'];
+    delete process.env['CARDLOOM_TELEMETRY_PATH'];
+    process.env['KNOWLEDGE_STORE_PATH'] = path.join(dir, 'store');
     resetTelemetryState();
+    resetConfigNotes();
     db = new Database(':memory:');
     initializeSchema(db);
     insertCard(db, 'pattern-alpha', 'alpha beta gamma');
@@ -57,6 +61,7 @@ describe('search_knowledge telemetry', () => {
       else process.env[k] = saved[k];
     }
     fs.rmSync(dir, { recursive: true, force: true });
+    vi.restoreAllMocks();
     vi.mocked(telemetry.recordSearch).mockClear();
   });
 
@@ -114,5 +119,69 @@ describe('search_knowledge telemetry', () => {
     expect(telemetry.recordSearch).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(failing)).toBe(JSON.stringify(off));
     expect(failing).toEqual(off);
+  });
+
+  describe('the knowledge store is off limits', () => {
+    const notes = (spy: ReturnType<typeof vi.spyOn>): string[] =>
+      spy.mock.calls.map((c: unknown[]) => String(c[0])).filter((l: string) => l.startsWith('[telemetry]'));
+
+    it('with INDEX_DB_PATH unset the default lands inside the store: nothing created, one note, same response', () => {
+      const off = handleSearchKnowledge(db, { query: 'alpha beta' });
+      delete process.env['INDEX_DB_PATH'];
+      process.env['CARDLOOM_TELEMETRY'] = 'local';
+      process.env['CARDLOOM_TELEMETRY_SAMPLES'] = '1';
+      const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      let last: unknown;
+      for (let i = 0; i < 4; i++) last = handleSearchKnowledge(db, { query: 'alpha beta' });
+      handleSearchKnowledge(db, { query: 'qqqqnothing' });
+      expect(fs.readdirSync(dir)).toEqual([]);
+      expect(notes(err)).toHaveLength(1);
+      expect(notes(err)[0]).toContain('is inside the knowledge store; not recording. Set INDEX_DB_PATH or CARDLOOM_TELEMETRY_PATH outside it.');
+      expect(JSON.stringify(last)).toBe(JSON.stringify(off));
+    });
+
+    it('with INDEX_DB_PATH pointing under the store it refuses too', () => {
+      process.env['INDEX_DB_PATH'] = path.join(dir, 'store', '.metadata', 'index.db');
+      process.env['CARDLOOM_TELEMETRY'] = 'local';
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      handleSearchKnowledge(db, { query: 'alpha beta' });
+      expect(fs.readdirSync(dir)).toEqual([]);
+    });
+
+    it('records when INDEX_DB_PATH is outside the store', () => {
+      process.env['CARDLOOM_TELEMETRY'] = 'local';
+      handleSearchKnowledge(db, { query: 'alpha beta' });
+      expect(rows()).toHaveLength(1);
+    });
+
+    it('CARDLOOM_TELEMETRY_PATH (absolute, outside) is used instead of the index folder', () => {
+      const elsewhere = path.join(dir, 'elsewhere', 'gaps.jsonl');
+      process.env['CARDLOOM_TELEMETRY_PATH'] = elsewhere;
+      process.env['CARDLOOM_TELEMETRY'] = 'local';
+      delete process.env['INDEX_DB_PATH']; // the default would be inside the store; the override rescues it
+      handleSearchKnowledge(db, { query: 'alpha beta' });
+      expect(fs.readFileSync(elsewhere, 'utf8').trim().split('\n')).toHaveLength(1);
+      expect(fs.existsSync(path.join(dir, 'store'))).toBe(false);
+    });
+
+    it('a relative CARDLOOM_TELEMETRY_PATH is ignored with one note, and the default beside the index is used', () => {
+      process.env['CARDLOOM_TELEMETRY_PATH'] = 'relative/gaps.jsonl';
+      process.env['CARDLOOM_TELEMETRY'] = 'local';
+      const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      handleSearchKnowledge(db, { query: 'alpha beta' });
+      handleSearchKnowledge(db, { query: 'alpha beta' });
+      expect(notes(err)).toEqual(['[telemetry] CARDLOOM_TELEMETRY_PATH must be an absolute path; ignoring it.']);
+      expect(rows()).toHaveLength(2);
+      expect(fs.existsSync(path.resolve('relative'))).toBe(false);
+    });
+
+    it('an override inside the store is refused', () => {
+      process.env['CARDLOOM_TELEMETRY_PATH'] = path.join(dir, 'store', 'telemetry.jsonl');
+      process.env['CARDLOOM_TELEMETRY'] = 'local';
+      const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      handleSearchKnowledge(db, { query: 'alpha beta' });
+      expect(fs.readdirSync(dir)).toEqual([]);
+      expect(notes(err)).toHaveLength(1);
+    });
   });
 });

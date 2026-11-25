@@ -240,6 +240,7 @@ Every setting is an environment variable and every one is optional.
 | `REVIEWER_NAME` | `human-reviewer` | Recorded as `verified_by` when a card is approved. |
 | `KNOWLEDGE_MACHINE_ID` | the host name | Names this machine's usage log (`events/<id>.jsonl`) so two machines never write the same file. |
 | `CARDLOOM_TELEMETRY` | off | `local` records how each search ended in `telemetry.jsonl` beside the index, for `gaps`. Anything else is off. See [Knowledge gaps](#knowledge-gaps). |
+| `CARDLOOM_TELEMETRY_PATH` | beside the index | Absolute path of the telemetry file. Refused if it is inside the knowledge store. |
 | `CARDLOOM_TELEMETRY_SAMPLES` | off | `1` or `true` also records the text of searches that found no direct answer. A separate opt-in; read the warning under [Knowledge gaps](#knowledge-gaps). |
 | `PROMOTION_MODE` and the other `PROMOTION_*` | see [Merge promotion](#merge-promotion-npm-run-promote-merged) | Control `npm run promote-merged`. |
 | `PORT` | `3334` | Web viewer port. |
@@ -588,18 +589,24 @@ and the search time in milliseconds. That is all.
 
 What is never recorded: card ids, results or their text, the `context` you pass, repo names. The search text is
 recorded only when `CARDLOOM_TELEMETRY_SAMPLES` is `1` or `true`, only for searches that were not `answered`, cut to
-200 characters, and left out when the secret scan flags it. The secret scan looks for credentials; it does not
-remove customer names or internal terms, which is why the text is a second opt-in. Turn it on only if you are
-comfortable with questions typed by an agent being written to your disk.
+200 characters, and left out when the secret scan flags it. The scan catches common credential formats only, and its
+patterns are case-sensitive: a lower-case `password: hunter2hunter2` line or a Slack-style `xoxb-...` token is not
+caught. It does not remove customer names or internal terms either, which is why the text is a second opt-in.
+Turn it on only if you are comfortable with questions typed by an agent being written to your disk.
 
-The file is `telemetry.jsonl` next to the index (`INDEX_DB_PATH`'s folder: `~/.cardloom` with `npx`, the
-`cardloom-metadata` volume in Docker). It is never inside the knowledge store, so it is never committed or synced,
-and nothing in trust, flags or ranking reads it. Lines older than 90 days are dropped, at most once per UTC day per
-server process. A failed write never changes a search response; it prints one `[telemetry]` line on stderr per
-process at most. `benchmark` never records, even with the switch on.
+Where the file lives: `telemetry.jsonl` next to the index (`INDEX_DB_PATH`'s folder: `~/.cardloom` with `npx`, the
+`cardloom-metadata` volume in Docker), or exactly where `CARDLOOM_TELEMETRY_PATH` points (an absolute file path; a
+relative value is ignored with a note on stderr). It is created with mode 0600 (owner read and write only). The
+server refuses to write it inside the knowledge store, which is a git repository you might `git add -A`: if the
+resolved path is the store or below it (symlinks are followed), nothing is created, one `[telemetry]` line goes to
+stderr per process, and searches are unaffected. That is what happens when `INDEX_DB_PATH` is unset (the index then
+sits in `<store>/.metadata`, as with `npm start` and `npm run dev`) and with the example `.env`, whose `INDEX_DB_PATH`
+is under the store; set `INDEX_DB_PATH` or `CARDLOOM_TELEMETRY_PATH` outside the store to record. Nothing in trust, flags or ranking reads the file. Lines older than 90 days are
+dropped, at most once per UTC day per server process. A failed write never changes a search response; it prints one
+`[telemetry]` line on stderr per process at most. `benchmark` never records, even with the switch on.
 
 `npx cardloom-mcp gaps` (or `npm run gaps`) reads the file; `--json` prints the report as JSON. It needs no index or
-store and creates nothing. Without the file it says `No telemetry yet. Set CARDLOOM_TELEMETRY=local to start recording.`
+store and creates nothing. When the resolved path is inside the knowledge store it says `Telemetry is not recorded while the index is inside the knowledge store. Set INDEX_DB_PATH or CARDLOOM_TELEMETRY_PATH outside it.` Without the file it says `No telemetry yet. Set CARDLOOM_TELEMETRY=local to start recording.`
 "Questions with no direct answer" lists the unanswered texts (lower-cased, whitespace collapsed, same text grouped)
 by count, at most 10; when no line carries text it says search text is not recorded and how to turn it on.
 

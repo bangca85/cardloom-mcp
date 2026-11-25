@@ -100,4 +100,42 @@ describe('runGaps', () => {
       formatGapsReport({ total: 1, answered: 1, relatedOnly: 0, empty: 0, since: '2026-11-01T00:00:00.000Z', topQueries: [], samplesEnabled: false }),
     ).toContain('1 search since');
   });
+
+  describe('inside the knowledge store', () => {
+    const DEFAULT_MSG =
+      'Telemetry is not recorded while the index is inside the knowledge store. Set INDEX_DB_PATH or CARDLOOM_TELEMETRY_PATH outside it.';
+
+    it('says so in text mode, exits cleanly and does not read a file there', () => {
+      const store = path.join(dir, 'store');
+      const inside = path.join(store, '.metadata', 'telemetry.jsonl');
+      fs.mkdirSync(path.dirname(inside), { recursive: true });
+      fs.writeFileSync(inside, `${e('2026-11-01T00:00:00.000Z', 'empty', 'leaked')}\n`);
+      expect(runGaps(inside, { json: false, storePath: store })).toBe(DEFAULT_MSG);
+    });
+
+    it('prints the zeroed report with --json', () => {
+      const store = path.join(dir, 'store');
+      expect(JSON.parse(runGaps(path.join(store, 'telemetry.jsonl'), { json: true, storePath: store }))).toEqual({
+        total: 0,
+        answered: 0,
+        relatedOnly: 0,
+        empty: 0,
+        since: null,
+        topQueries: [],
+        samplesEnabled: false,
+      });
+    });
+
+    it('names CARDLOOM_TELEMETRY_PATH when that is the path inside the store', () => {
+      const store = path.join(dir, 'store');
+      expect(runGaps(path.join(store, 't.jsonl'), { json: false, storePath: store, overridden: true })).toContain(
+        'while CARDLOOM_TELEMETRY_PATH is inside the knowledge store',
+      );
+    });
+
+    it('reads normally when the file is outside the store', () => {
+      fs.writeFileSync(file, `${e('2026-11-01T00:00:00.000Z', 'answered')}\n`);
+      expect(runGaps(file, { json: false, storePath: path.join(dir, 'store') })).toContain('1 search since');
+    });
+  });
 });

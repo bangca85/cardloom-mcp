@@ -6,6 +6,7 @@ import {
   buildGapsReport,
   classifyOutcome,
   pruneTelemetry,
+  isInsideStore,
   readTelemetry,
   recordSearch,
   resetTelemetryState,
@@ -254,5 +255,91 @@ describe('buildGapsReport', () => {
     expect(r.topQueries).toHaveLength(10);
     expect(r.topQueries[0]).toEqual({ query: 'z', count: 2 });
     expect(r.topQueries.slice(1).map((t) => t.query)).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']);
+  });
+});
+
+describe('the knowledge store is off limits', () => {
+  let store: string;
+  beforeEach(() => {
+    store = path.join(dir, 'store');
+  });
+
+  const messageLines = (spy: ReturnType<typeof vi.spyOn>): string[] =>
+    spy.mock.calls.map((c: unknown[]) => String(c[0])).filter((l: string) => l.startsWith('[telemetry]'));
+
+  it('refuses a path inside the store: nothing created, one stderr line however many searches', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const target = path.join(store, '.metadata', 'telemetry.jsonl');
+    for (let i = 0; i < 5; i++) {
+      recordSearch({ resultCount: 0, outcome: 'empty', latencyMs: 1, query: 'x' }, { path: target, mode: 'local', samples: true, now: NOW, storePath: store });
+    }
+    expect(fs.existsSync(store)).toBe(false);
+    expect(fs.readdirSync(dir)).toEqual([]);
+    const lines = messageLines(err);
+    expect(lines).toEqual([
+      `[telemetry] ${target} is inside the knowledge store; not recording. Set INDEX_DB_PATH or CARDLOOM_TELEMETRY_PATH outside it.`,
+    ]);
+  });
+
+  it('refuses the store directory itself and a `..` spelling that lands inside it', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    expect(isInsideStore(store, store)).toBe(true);
+    expect(isInsideStore(path.join(store, 'x', '..', 'y', 'telemetry.jsonl'), store)).toBe(true);
+    expect(isInsideStore(path.join(dir, 'store-elsewhere', 'telemetry.jsonl'), store)).toBe(false);
+    expect(isInsideStore(path.join(dir, 'telemetry.jsonl'), store)).toBe(false);
+  });
+
+  it('records when the path is outside the store', () => {
+    recordSearch({ resultCount: 1, outcome: 'answered', latencyMs: 1 }, { path: file, mode: 'local', now: NOW, storePath: store });
+    expect(lines()).toHaveLength(1);
+  });
+
+  it('refuses a path that reaches the store through a symlink', () => {
+    fs.mkdirSync(store);
+    const link = path.join(dir, 'link');
+    fs.symlinkSync(store, link);
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    recordSearch({ resultCount: 1, outcome: 'answered', latencyMs: 1 }, { path: path.join(link, 'sub', 'telemetry.jsonl'), mode: 'local', now: NOW, storePath: store });
+    expect(fs.readdirSync(store)).toEqual([]);
+    expect(messageLines(err)).toHaveLength(1);
+  });
+
+  it('refuses a store reached through a symlink as well', () => {
+    const real = path.join(dir, 'real-store');
+    fs.mkdirSync(real);
+    const link = path.join(dir, 'store-link');
+    fs.symlinkSync(real, link);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    recordSearch({ resultCount: 1, outcome: 'answered', latencyMs: 1 }, { path: path.join(real, 'telemetry.jsonl'), mode: 'local', now: NOW, storePath: link });
+    expect(fs.readdirSync(real)).toEqual([]);
+  });
+
+  it('pruneTelemetry leaves a file inside the store alone', () => {
+    fs.mkdirSync(store);
+    const inside = path.join(store, 'telemetry.jsonl');
+    const old = `${JSON.stringify(entryAt(new Date(NOW.getTime() - 100 * DAY)))}\n`;
+    fs.writeFileSync(inside, old);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    pruneTelemetry(inside, NOW, 90, store);
+    expect(fs.readFileSync(inside, 'utf8')).toBe(old);
+  });
+});
+
+describe.skipIf(process.platform === 'win32')('file mode', () => {
+  const mode = (f: string): number => fs.statSync(f).mode & 0o777;
+
+  it('creates the file with mode 0600', () => {
+    recordSearch({ resultCount: 1, outcome: 'answered', latencyMs: 1 }, { path: file, mode: 'local', now: NOW });
+    expect(mode(file)).toBe(0o600);
+  });
+
+  it('keeps mode 0600 after a prune rewrote the file', () => {
+    fs.writeFileSync(file, `${JSON.stringify(entryAt(new Date(NOW.getTime() - 100 * DAY)))}\n${JSON.stringify(entryAt(NOW))}\n`, { mode: 0o644 });
+    fs.chmodSync(file, 0o644);
+    pruneTelemetry(file, NOW);
+    expect(readTelemetry(file)).toHaveLength(1);
+    // The temp file is created 0600 and renamed over the original.
+    expect(mode(file)).toBe(0o600);
+    expect(fs.readdirSync(dir)).toEqual(['telemetry.jsonl']);
   });
 });
