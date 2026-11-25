@@ -97,7 +97,11 @@ export interface BenchmarkReport {
   byGroup: Record<string, KindReport & { kind: BenchmarkKind }>;
   p50Ms: number;
   p95Ms: number;
-  /** Estimated tokens of `handleSearchKnowledge`'s serialised JSON per query (chars / 4), not a tokenizer count. */
+  /**
+   * Estimated tokens of `handleSearchKnowledge`'s serialised JSON per query (chars / 4), not a tokenizer count.
+   * Measured with the same ranking, fallback, limit and clock (`opts.now`) as the scored run, so the JSON sized
+   * is the result that was scored (flags such as `stale` depend on the clock).
+   */
   estimatedResponseTokens: { mean: number; p95: number };
   misses: BenchmarkMiss[];
 }
@@ -396,7 +400,7 @@ export function runBenchmark(
     const toolResponse = handleSearchKnowledge(
       db,
       { query: q.query, context: q.context, limit: opts.limit },
-      { ranking: opts.ranking, fallback: opts.fallback },
+      { ranking: opts.ranking, fallback: opts.fallback, now: opts.now },
     );
     responseTokens.push(estimateToolJsonTokens(toolResponse.content[0]!.text));
 
@@ -601,10 +605,13 @@ export function compareLimitsByRanking(
   queries: BenchmarkQuery[],
   opts: Omit<BenchmarkOptions, 'limit' | 'ranking'> = {},
 ): Record<'baseline' | 'x' | 'y', LimitComparison> {
+  // The OR tier is what `limit` switches on or off; with SEARCH_FALLBACK=off in the environment there would be
+  // nothing to compare, so the tiered fallback is pinned here (an explicit `opts.fallback` still wins).
+  const pinned = { fallback: 'tiered' as const, ...opts };
   return {
-    baseline: compareLimits(db, queries, { ...opts, ranking: 'baseline' }),
-    x: compareLimits(db, queries, { ...opts, ranking: 'x' }),
-    y: compareLimits(db, queries, { ...opts, ranking: 'y' }),
+    baseline: compareLimits(db, queries, { ...pinned, ranking: 'baseline' }),
+    x: compareLimits(db, queries, { ...pinned, ranking: 'x' }),
+    y: compareLimits(db, queries, { ...pinned, ranking: 'y' }),
   };
 }
 

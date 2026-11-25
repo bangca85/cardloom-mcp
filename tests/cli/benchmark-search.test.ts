@@ -594,6 +594,56 @@ describe('compare limits on the committed fixture store', () => {
     expect(byRanking.x.at10.byKind.known?.hit1).toBe(1);
   });
 
+  it('measures tokens at the scored run\'s clock: a card stale only at the pinned now is flagged in both runs', () => {
+    const staleQuery = {
+      query: 'invalidate cache entries inside the write transaction',
+      kind: 'stale' as const,
+      expected: 'pattern-cache-invalidation-write',
+    };
+    const fresh = new Date('2026-11-25T00:00:00.000Z'); // 24 days after last_verified
+    const stale = new Date('2028-01-01T00:00:00.000Z'); // well past the 180-day threshold
+
+    const staleHandlerFlags = (now: Date): boolean[] => {
+      vi.mocked(handleSearchKnowledge).mockClear();
+      const report = runBenchmark(db, [staleQuery], { limit: 5, now });
+      const [[, , overrides]] = vi.mocked(handleSearchKnowledge).mock.calls as unknown as [[unknown, unknown, { now?: Date }]];
+      expect(overrides.now).toBe(now);
+      const text = (vi.mocked(handleSearchKnowledge).mock.results[0]!.value as { content: Array<{ text: string }> }).content[0]!.text;
+      const flags = (JSON.parse(text) as { results: Array<{ id: string; flags: { stale?: boolean } }> }).results
+        .filter((r) => r.id === staleQuery.expected)
+        .map((r) => r.flags.stale === true);
+      // The scored run and the measured run agree on the flag.
+      expect(report.byKind.stale).toMatchObject({ retrievedRate: 1, flagAccuracy: flags[0] ? 1 : 0 });
+      return flags;
+    };
+
+    expect(staleHandlerFlags(fresh)).toEqual([false]);
+    expect(staleHandlerFlags(stale)).toEqual([true]);
+  });
+
+  it('compareLimitsByRanking pins the tiered fallback: SEARCH_FALLBACK=off in the environment changes nothing', () => {
+    const strip = (c: ReturnType<typeof compareLimitsByRanking>) =>
+      Object.fromEntries(
+        Object.entries(c).map(([ranking, { at5, at10 }]) => [
+          ranking,
+          [at5, at10].map(({ p50Ms: _a, p95Ms: _b, ...rest }) => rest),
+        ]),
+      );
+    const previous = process.env['SEARCH_FALLBACK'];
+    try {
+      delete process.env['SEARCH_FALLBACK'];
+      const unset = strip(compareLimitsByRanking(db, queries));
+      process.env['SEARCH_FALLBACK'] = 'off';
+      const off = strip(compareLimitsByRanking(db, queries));
+      expect(off).toEqual(unset);
+      // and the tier effect is still there: with the OR tier, limit 10 finds the acme/app card under x
+      expect(compareLimitsByRanking(db, round1()).x.at10.byKind.known).toMatchObject({ hit1: 1 });
+    } finally {
+      if (previous === undefined) delete process.env['SEARCH_FALLBACK'];
+      else process.env['SEARCH_FALLBACK'] = previous;
+    }
+  });
+
   it('formatLimitComparison labels token figures as estimated and shows recall per kind', () => {
     const text = formatLimitComparison(compareLimitsByRanking(db, queries));
     expect(text).toContain('ranking baseline');

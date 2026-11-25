@@ -18,15 +18,17 @@ const SNIPPET_MAX_CHARS = 200;
 
 /**
  * `overrides` is not part of the MCP input schema: the server never passes it. The benchmark uses it to pin
- * ranking/fallback per run while still measuring the exact JSON this tool serialises.
+ * ranking, fallback and the clock (`now`, which drives the stale flag and trust decay) per run while still
+ * measuring the exact JSON this tool serialises.
  */
 export function handleSearchKnowledge(
   db: Database.Database,
   args: SearchKnowledgeArgs,
-  overrides: Pick<SearchOptions, 'ranking' | 'fallback'> = {},
+  overrides: Pick<SearchOptions, 'ranking' | 'fallback'> & { now?: Date } = {},
 ) {
+  const { now, ...searchOverrides } = overrides;
   const opts: SearchOptions = {
-    ...overrides,
+    ...searchOverrides,
     context: args.context,
     includeDrafts: args.include_drafts,
     includeDeprecated: args.include_deprecated,
@@ -34,7 +36,7 @@ export function handleSearchKnowledge(
     limit: args.limit,
   };
 
-  const found = searchCards(db, args.query, opts);
+  const found = searchCards(db, args.query, opts, now);
 
   const results = found.map((item) => ({
     id: item.id,
