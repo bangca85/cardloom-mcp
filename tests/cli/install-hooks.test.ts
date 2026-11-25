@@ -6,7 +6,7 @@ import { MARKER_START, parseInstallArgs, planHooks, runInstall, writeFileAtomica
 import type { CommandRunner } from '../../src/cli/install.js';
 
 const HOOK_COMMAND = 'npx -y cardloom-mcp context';
-const ENTRY = { type: 'command', command: HOOK_COMMAND };
+const ENTRY = { type: 'command', command: HOOK_COMMAND, timeout: 15 };
 
 let root: string;
 let home: string;
@@ -101,6 +101,25 @@ describe('install --hooks --yes', () => {
     const res = await runInstall(env(), hooksOnly(true), recordingRunner(), nodeFs);
     expect(res.exitCode).toBe(0);
     expect(nodeFs.readFileSync(settings, 'utf8')).toBe(original);
+  });
+
+  it('recognises an entry with or without a timeout as ours', async () => {
+    for (const entry of [
+      { type: 'command', command: HOOK_COMMAND },
+      { type: 'command', command: HOOK_COMMAND, timeout: 5 },
+    ]) {
+      const original = `${JSON.stringify({ hooks: { SessionStart: [{ hooks: [entry] }] } }, null, 2)}\n`;
+      seedSettings(original);
+      const res = await runInstall(env(), hooksOnly(true), recordingRunner(), nodeFs);
+      expect(res.exitCode).toBe(0);
+      expect(nodeFs.readFileSync(settings, 'utf8')).toBe(original);
+    }
+  });
+
+  it('writes a 15 second timeout on the entry', async () => {
+    await runInstall(env(), hooksOnly(true), recordingRunner(), nodeFs);
+    const doc = JSON.parse(nodeFs.readFileSync(settings, 'utf8'));
+    expect(doc.hooks.SessionStart[0].hooks[0].timeout).toBe(15);
   });
 
   it('keeps unrelated keys and hooks and appends one group (2-space indent, trailing newline)', async () => {

@@ -365,7 +365,9 @@ Use search_knowledge/get_card for details.
 - **Read-only:** it opens the existing index (`INDEX_DB_PATH`, `~/.cardloom/index.db` by default) for reading and
   never builds, migrates or creates anything, not even the `-wal` files of a WAL index. If the index is missing,
   unreadable or from an older version, or the store is empty, it prints nothing and exits 0, so a session never breaks.
-  Start the server once (or run `npm run rebuild-index`) to have an index.
+  Start the server once to have an index (the `npx` server builds `~/.cardloom/index.db`). `npm run rebuild-index`
+  from a clone builds the clone's own index (`<store>/.metadata/index.db` unless `INDEX_DB_PATH` is set), which is
+  not the file the hook reads unless both point at the same `INDEX_DB_PATH`.
 
 Register it with one command (it prints the plan; add `--yes` to apply):
 
@@ -383,7 +385,7 @@ kept, and running it again does not add a second entry. To use it together with 
 {
   "hooks": {
     "SessionStart": [
-      { "hooks": [{ "type": "command", "command": "npx -y cardloom-mcp context" }] }
+      { "hooks": [{ "type": "command", "command": "npx -y cardloom-mcp context", "timeout": 15 }] }
     ]
   }
 }
@@ -396,7 +398,13 @@ Things to know before relying on it:
 - **`npx -y cardloom-mcp context` may contact the npm registry on every session start**, which can slow the start of a
   session. For a faster hook, install the package globally (`npm install -g cardloom-mcp`) and register the command
   `cardloom-mcp context` instead. `install --hooks` registers the `npx -y` form, so edit the `command` in
-  `~/.claude/settings.json` to switch.
+  `~/.claude/settings.json` to switch. The entry `install --hooks` writes has `"timeout": 15` (seconds), so a slow or
+  offline registry cannot hold up a session start for long; an entry you wrote without a timeout is still recognised
+  and left as it is.
+- **A custom `INDEX_DB_PATH` must reach the hook too.** The hook is a separate process from the MCP server, so an
+  `INDEX_DB_PATH` set only in your MCP config `env` is not seen by it: it reads the default `~/.cardloom/index.db`
+  instead, or prints nothing when that file is missing. Hook commands run in a shell, so put the variable in the command itself, for example
+  `"command": "INDEX_DB_PATH=/absolute/path/index.db npx -y cardloom-mcp context"`.
 - **`npm run context` from a clone** reads the clone's own `.knowledge-map.yaml` (the current directory) and needs
   `INDEX_DB_PATH` set to the index to read; without it, it prints nothing.
 
@@ -666,7 +674,10 @@ is under the store; set `INDEX_DB_PATH` or `CARDLOOM_TELEMETRY_PATH` outside the
 dropped, at most once per UTC day per server process. A failed write never changes a search response; it prints one
 `[telemetry]` line on stderr per process at most. `benchmark` never records, even with the switch on.
 
-`npx cardloom-mcp gaps` (or `npm run gaps`) reads the file; `--json` prints the report as JSON. It needs no index or
+`npx cardloom-mcp gaps` (or `npm run gaps`) reads the file. With Docker the file is in the named volume, which the
+host cannot see, so `npx cardloom-mcp gaps` on the host says `No telemetry yet`; run
+`docker compose run --rm cardloom-mcp npm run gaps` instead.
+`--json` prints the report as JSON. It needs no index or
 store and creates nothing. When the resolved path is inside the knowledge store it says `Telemetry is not recorded while the index is inside the knowledge store. Set INDEX_DB_PATH or CARDLOOM_TELEMETRY_PATH outside it.` Without the file it says `No telemetry yet. Set CARDLOOM_TELEMETRY=local to start recording.`
 "Questions with no direct answer" lists the unanswered texts (lower-cased, whitespace collapsed, same text grouped)
 by count, at most 10; when no line carries text it says search text is not recorded and how to turn it on.

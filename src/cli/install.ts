@@ -357,7 +357,8 @@ async function installAgent(
 // ---------------------------------------------------------------- SessionStart hook (Claude Code only)
 
 const HOOK_COMMAND = `npx -y ${PACKAGE} context`;
-const HOOK_ENTRY = { type: 'command', command: HOOK_COMMAND };
+// `timeout` is in seconds (Claude Code hook schema): a slow or offline npm registry cannot hold the session start for long.
+const HOOK_ENTRY = { type: 'command', command: HOOK_COMMAND, timeout: 15 };
 // Our entry is recognised by the command, so a hand-written one (another path, extra flags) is kept as it is.
 const HOOK_MARKER = `${PACKAGE} context`;
 
