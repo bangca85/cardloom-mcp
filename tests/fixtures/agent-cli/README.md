@@ -11,6 +11,7 @@ entry, a `cardloom` entry with another command, and an entry that runs `npx -y c
 | Fixture | CLI version | How it was made | Parsed by `detectEntry` |
 | --- | --- | --- | --- |
 | `claude-get-ours.txt`, `claude-get-foreign.txt` | Claude Code 2.1.323 | `claude mcp get cardloom`: format recorded, then sanitised | yes |
+| `claude-get-local-ours.txt`, `claude-get-project-ours.txt`, `claude-get-local-foreign.txt`, `claude-get-no-scope.txt` | Claude Code 2.1.323 | hand-written variants of the recorded `get` output: only the `Scope:` line changes (`Local config (private to you in this project)` and `Project config (shared via .mcp.json)` are the scope strings in the CLI binary; `claude-get-no-scope.txt` has no `Scope:` line) | yes |
 | `claude-get-absent.txt` | Claude Code 2.1.323 | `claude mcp get <missing>` (exit 1, text on stderr): format recorded, then sanitised | yes |
 | `claude-list.txt` | Claude Code 2.1.323 | `claude mcp list`: format recorded, then sanitised | no, reference only (it health-checks every configured server, so `install` uses `get`) |
 | `codex-list-ours.json`, `codex-list-foreign.json`, `codex-list-absent.json` | codex-cli 0.169.0 | `codex mcp list --json`: format recorded, then sanitised | yes |

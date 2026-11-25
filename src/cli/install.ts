@@ -15,12 +15,15 @@ export interface CommandResult {
 }
 
 export interface CommandRunner {
-  run(cmd: string, args: string[]): Promise<CommandResult>;
+  run(cmd: string, args: string[], opts?: { cwd?: string }): Promise<CommandResult>;
 }
 
 export type EntryState = 'absent' | 'ours' | 'foreign';
 
-type InstallFs = Pick<typeof import('node:fs'), 'readFileSync' | 'writeFileSync' | 'mkdirSync' | 'existsSync'>;
+type InstallFs = Pick<
+  typeof import('node:fs'),
+  'readFileSync' | 'writeFileSync' | 'mkdirSync' | 'existsSync' | 'renameSync' | 'realpathSync' | 'rmSync'
+>;
 
 export const MARKER_START = '<!-- cardloom:start -->';
 export const MARKER_END = '<!-- cardloom:end -->';
@@ -79,13 +82,14 @@ function runsCardloomMcp(command: string, args: string[]): boolean {
 
 interface Inspection {
   state: EntryState;
-  // foreign only: the entry exists but its command could not be read, so it is kept as foreign to be safe.
-  unreadable?: boolean;
+  // foreign only: why the entry is kept as foreign when it is not simply "another command".
+  // unreadable: its command could not be read. scope: claude reports it outside user scope.
+  reason?: 'unreadable' | 'scope';
 }
 
 const ours = (command: string, args: string[]): Inspection =>
   runsCardloomMcp(command, args) ? { state: 'ours' } : { state: 'foreign' };
-const unreadable: Inspection = { state: 'foreign', unreadable: true };
+const unreadable: Inspection = { state: 'foreign', reason: 'unreadable' };
 
 function firstLine(text: string): string {
   return text.split('\n').find((l) => l.trim() !== '')?.trim() ?? '';
@@ -98,8 +102,8 @@ function failed(what: string, r: CommandResult): Error {
 
 // `claude mcp get cardloom` prints the entry (exact name) with `Command:` / `Args:` lines, or "No MCP server named"
 // and exit 1. `claude mcp list` health-checks every configured server, which is slow, so it is not used.
-async function inspectClaude(runner: CommandRunner): Promise<Inspection> {
-  const r = await runner.run('claude', ['mcp', 'get', SERVER_NAME]);
+async function inspectClaude(runner: CommandRunner, cwd: string | undefined): Promise<Inspection> {
+  const r = await runner.run('claude', ['mcp', 'get', SERVER_NAME], { cwd });
   if (r.code !== 0) {
     if (/No MCP server named/i.test(`${r.stdout}\n${r.stderr}`)) return { state: 'absent' };
     throw failed('claude mcp get cardloom', r);
@@ -108,12 +112,22 @@ async function inspectClaude(runner: CommandRunner): Promise<Inspection> {
   const command = /^\s*Command:\s*(.+?)\s*$/m.exec(r.stdout)?.[1];
   if (command === undefined) return unreadable;
   const args = (/^\s*Args:\s*(.+?)\s*$/m.exec(r.stdout)?.[1] ?? '').split(/\s+/).filter((a) => a !== '');
-  return ours(command, args);
+  // Registration is at user scope; scopes are separate stores (`claude mcp add --scope` takes local, user or
+  // project), so only a user-scope entry can be "already registered". Run from the home directory, `get` does
+  // not see another project's local or project entries.
+  const scope = /^\s*Scope:\s*(.+?)\s*$/m.exec(r.stdout)?.[1];
+  if (scope === undefined) return { state: 'foreign', reason: 'scope' };
+  if (/^User config/i.test(scope)) return ours(command, args);
+  if (/^(Local|Project) config/i.test(scope)) {
+    // A local/project entry that runs cardloom-mcp does not register it for every project: register at user scope.
+    return runsCardloomMcp(command, args) ? { state: 'absent' } : { state: 'foreign', reason: 'scope' };
+  }
+  return { state: 'foreign', reason: 'scope' };
 }
 
 // `codex mcp list --json`: an array of {name, transport: {type, command, args}}; exact name match.
-async function inspectCodex(runner: CommandRunner): Promise<Inspection> {
-  const r = await runner.run('codex', ['mcp', 'list', '--json']);
+async function inspectCodex(runner: CommandRunner, cwd: string | undefined): Promise<Inspection> {
+  const r = await runner.run('codex', ['mcp', 'list', '--json'], { cwd });
   if (r.code !== 0) throw failed('codex mcp list', r);
   let list: unknown;
   try {
@@ -132,8 +146,8 @@ async function inspectCodex(runner: CommandRunner): Promise<Inspection> {
 
 // `gemini mcp list` prints `<indicator> <name>[ (from <ext>)]: <command> <args> (stdio) - <Status>` per server,
 // to stderr, possibly with colour codes.
-async function inspectGemini(runner: CommandRunner): Promise<Inspection> {
-  const r = await runner.run('gemini', ['mcp', 'list']);
+async function inspectGemini(runner: CommandRunner, cwd: string | undefined): Promise<Inspection> {
+  const r = await runner.run('gemini', ['mcp', 'list'], { cwd });
   if (r.code !== 0) throw failed('gemini mcp list', r);
   // eslint-disable-next-line no-control-regex
   const text = `${r.stdout}\n${r.stderr}`.replace(/\u001b\[[0-9;]*m/g, '');
@@ -152,15 +166,15 @@ async function inspectGemini(runner: CommandRunner): Promise<Inspection> {
   return { state: 'absent' };
 }
 
-async function inspectEntry(agent: AgentId, runner: CommandRunner): Promise<Inspection> {
-  if (agent === 'claude') return inspectClaude(runner);
-  if (agent === 'codex') return inspectCodex(runner);
-  return inspectGemini(runner);
+async function inspectEntry(agent: AgentId, runner: CommandRunner, cwd: string | undefined): Promise<Inspection> {
+  if (agent === 'claude') return inspectClaude(runner, cwd);
+  if (agent === 'codex') return inspectCodex(runner, cwd);
+  return inspectGemini(runner, cwd);
 }
 
 /** Whether the agent already has a server named exactly `cardloom` that runs `cardloom-mcp`. Throws when the CLI fails. */
-export async function detectEntry(agent: AgentId, runner: CommandRunner): Promise<EntryState> {
-  return (await inspectEntry(agent, runner)).state;
+export async function detectEntry(agent: AgentId, runner: CommandRunner, opts: { cwd?: string } = {}): Promise<EntryState> {
+  return (await inspectEntry(agent, runner, opts.cwd)).state;
 }
 
 // ---------------------------------------------------------------- install
@@ -211,6 +225,28 @@ function planInstructions(file: string, fs: InstallFs): InstructionsPlan {
   return { kind: 'write', verb: marked ? 'update' : 'add to', content };
 }
 
+/**
+ * Writes next to the target and renames over it, so a failed write never truncates the user's file. A symlinked
+ * target (dotfile managers) stays a symlink: the rename lands on the file it points to. The temp file is removed
+ * on failure.
+ */
+function writeFileAtomically(file: string, content: string, fs: InstallFs): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const target = fs.existsSync(file) ? fs.realpathSync(file) : file;
+  const tmp = `${target}.cardloom-tmp`;
+  try {
+    fs.writeFileSync(tmp, content);
+    fs.renameSync(tmp, target);
+  } catch (err) {
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      // best effort: the original file is intact either way
+    }
+    throw err;
+  }
+}
+
 function describePlan(plan: InstructionsPlan, file: string, applied: boolean): string {
   if (plan.kind === 'current') return `instructions already up to date: ${file}`;
   if (plan.kind === 'hand-written') return `instructions left alone: ${file} already has a Knowledge Hub section`;
@@ -219,6 +255,7 @@ function describePlan(plan: InstructionsPlan, file: string, applied: boolean): s
   return applied ? `instructions ${what[0]}: ${file}` : `would ${what[1]} instructions: ${file}`;
 }
 
+const SCOPE_MESSAGE = 'cardloom found outside user scope; left unchanged';
 const FOREIGN_MESSAGE = 'existing cardloom entry uses another command; left unchanged';
 
 interface AgentOutcome {
@@ -242,9 +279,10 @@ async function installAgent(
   const registerCommand = `${agent} ${REGISTER[agent].join(' ')}`;
   const file = instructionsPath(agent, env);
   try {
-    const inspected = await inspectEntry(agent, runner);
+    const inspected = await inspectEntry(agent, runner, env.home);
     if (inspected.state === 'foreign') {
-      say(FOREIGN_MESSAGE + (inspected.unreadable === true ? ' (its command could not be read, so it is treated as another command)' : ''));
+      if (inspected.reason === 'scope') say(SCOPE_MESSAGE);
+      else say(FOREIGN_MESSAGE + (inspected.reason === 'unreadable' ? ' (its command could not be read, so it is treated as another command)' : ''));
       say('instructions not written for this agent');
       return { lines, ok: true };
     }
@@ -271,8 +309,7 @@ async function installAgent(
       return { lines, ok: false };
     }
     if (yes && plan.kind === 'write') {
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, plan.content);
+      writeFileAtomically(file, plan.content, fs);
     }
     say(describePlan(plan, file, yes));
     return { lines, ok: true };
@@ -339,7 +376,7 @@ export function parseInstallArgs(argv: string[]): { yes: boolean; agents?: Agent
 /** Runs a command without a shell; an unstartable command is exit 127. */
 export function createCommandRunner(timeoutMs = 120_000): CommandRunner {
   return {
-    run(cmd, args) {
+    run(cmd, args, opts) {
       return new Promise((resolve) => {
         let stdout = '';
         let stderr = '';
@@ -350,7 +387,7 @@ export function createCommandRunner(timeoutMs = 120_000): CommandRunner {
           clearTimeout(timer);
           resolve({ code, stdout, stderr });
         };
-        const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32' });
+        const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32', cwd: opts?.cwd });
         const timer = setTimeout(() => {
           stderr += `timed out after ${timeoutMs / 1000}s`;
           child.kill();

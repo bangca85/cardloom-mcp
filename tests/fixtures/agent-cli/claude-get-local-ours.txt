@@ -1,0 +1,10 @@
+cardloom:
+  Scope: Local config (private to you in this project)
+  Status: ✔ Connected
+  Type: stdio
+  Command: npx
+  Args: -y cardloom-mcp
+  Environment:
+
+
+To remove this server, run: claude mcp remove cardloom -s local

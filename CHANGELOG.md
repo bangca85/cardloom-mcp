@@ -12,6 +12,9 @@ All notable changes to this project will be documented in this file.
   command runs `cardloom-mcp`; another command is left unchanged and gets no instructions, and `cardloom-dev`
   is never touched. Agents are handled independently, a failure exits 1, and re-running finishes the rest without
   duplicating the block. `--help` / `-h` print the usage and exit 0. Does not create `~/.cardloom`.
+  Detection runs from your home directory and, for Claude Code, only a user-scope `cardloom` counts as registered (a
+  project-scope one is registered again at user scope). Instruction files are written through a temp file and a
+  rename, so a failed write cannot truncate them and a symlinked file stays a symlink.
   The block lives in `src/config/agent-instructions.ts`; a test fails if it differs from the README.
 - README: new FAQ "How is cardloom different from other agent memory tools?" and `tests/readme-claims.test.ts`,
   which fails if the README links no `trust-guarantees` test or contains a forbidden claim pattern.

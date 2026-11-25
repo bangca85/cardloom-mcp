@@ -18,12 +18,15 @@ const fixture = (name: string): string => readFileSync(resolve(__dirname, '..', 
 type Result = { code: number; stdout: string; stderr: string };
 type Handler = (cmd: string, args: string[]) => Result | undefined;
 
-function fakeRunner(handler: Handler): CommandRunner & { calls: string[][] } {
+function fakeRunner(handler: Handler): CommandRunner & { calls: string[][]; cwds: (string | undefined)[] } {
   const calls: string[][] = [];
+  const cwds: (string | undefined)[] = [];
   return {
     calls,
-    async run(cmd, args) {
+    cwds,
+    async run(cmd, args, opts) {
       calls.push([cmd, ...args]);
+      cwds.push(opts?.cwd);
       return handler(cmd, args) ?? { code: 1, stdout: '', stderr: `unexpected: ${cmd} ${args.join(' ')}` };
     },
   };
@@ -92,8 +95,29 @@ describe('detectEntry', () => {
     await expect(detectEntry('claude', fakeRunner(() => fail('network down')))).rejects.toThrow(/claude mcp get cardloom/);
   });
 
+  it('claude: runs from the directory it is given', async () => {
+    const r = fakeRunner(() => ok(fixture('claude-get-ours.txt')));
+    await detectEntry('claude', r, { cwd: '/h' });
+    expect(r.cwds).toEqual(['/h']);
+  });
+
+  it.each(['claude-get-local-ours.txt', 'claude-get-project-ours.txt'])(
+    'claude: %s (cardloom-mcp registered for one project only) is absent at user scope',
+    async (file) => {
+      expect(await detectEntry('claude', fakeRunner(() => ok(fixture(file))))).toBe('absent');
+    },
+  );
+
+  it('claude: a local-scope cardloom with another command is foreign', async () => {
+    expect(await detectEntry('claude', fakeRunner(() => ok(fixture('claude-get-local-foreign.txt'))))).toBe('foreign');
+  });
+
+  it('claude: an entry without a Scope line is foreign, not ours', async () => {
+    expect(await detectEntry('claude', fakeRunner(() => ok(fixture('claude-get-no-scope.txt'))))).toBe('foreign');
+  });
+
   it('claude: an entry without a command line (http) is foreign', async () => {
-    const http = 'cardloom:\n  Scope: User config\n  Type: http\n  URL: https://example.invalid/mcp\n';
+    const http = 'cardloom:\n  Scope: User config (available in all your projects)\n  Type: http\n  URL: https://example.invalid/mcp\n';
     expect(await detectEntry('claude', fakeRunner(() => ok(http)))).toBe('foreign');
   });
 
@@ -105,6 +129,14 @@ describe('detectEntry', () => {
     const r = fakeRunner(() => ok(fixture(file)));
     expect(await detectEntry('codex', r)).toBe(expected);
     expect(r.calls).toEqual([['codex', 'mcp', 'list', '--json']]);
+  });
+
+  it('codex and gemini detection runs from the given directory', async () => {
+    const c = fakeRunner(() => ok(fixture('codex-list-absent.json')));
+    await detectEntry('codex', c, { cwd: '/h' });
+    const g = fakeRunner(() => ok('', fixture('gemini-list-none.txt')));
+    await detectEntry('gemini', g, { cwd: '/h' });
+    expect([...c.cwds, ...g.cwds]).toEqual(['/h', '/h']);
   });
 
   it('codex: an http entry named cardloom is foreign', async () => {
@@ -158,28 +190,44 @@ describe('detectEntry', () => {
   });
 });
 
-// A tiny in-memory file system with the four calls runInstall may use.
-function fakeFs(initial: Record<string, string> = {}) {
+// A tiny in-memory file system with the calls runInstall may use. `writes` lists the files a rename put in place
+// (the final writes); `failOn` makes the write or the rename throw. `links` maps a symlink path to its target.
+function fakeFs(initial: Record<string, string> = {}, opts: { failOn?: 'write' | 'rename'; links?: Record<string, string> } = {}) {
   const files = new Map(Object.entries(initial));
+  const links = new Map(Object.entries(opts.links ?? {}));
   const writes: string[] = [];
   const dirs: string[] = [];
+  const real = (p: string): string => links.get(p) ?? p;
   const fs = {
-    existsSync: (p: string) => files.has(p),
+    existsSync: (p: string) => files.has(real(p)),
+    realpathSync: (p: string) => real(p),
     readFileSync: (p: string) => {
-      const v = files.get(p);
+      const v = files.get(real(p));
       if (v === undefined) throw new Error(`ENOENT ${p}`);
       return v;
     },
     writeFileSync: (p: string, data: string) => {
-      writes.push(p);
-      files.set(p, data);
+      if (opts.failOn === 'write') {
+        files.set(p, data.slice(0, 10)); // a partial temp file, as a full disk would leave
+        throw new Error('ENOSPC');
+      }
+      files.set(real(p), data);
+    },
+    renameSync: (from: string, to: string) => {
+      if (opts.failOn === 'rename') throw new Error('EXDEV');
+      files.set(to, files.get(from) ?? '');
+      files.delete(from);
+      writes.push(to);
+    },
+    rmSync: (p: string) => {
+      files.delete(p);
     },
     mkdirSync: (p: string) => {
       dirs.push(p);
       return undefined;
     },
   };
-  return { fs: fs as unknown as Parameters<typeof runInstall>[3], files, writes, dirs };
+  return { fs: fs as unknown as Parameters<typeof runInstall>[3], files, writes, dirs, links };
 }
 
 const ABSENT_ALL: Handler = (cmd, args) => {
@@ -271,6 +319,77 @@ describe('runInstall', () => {
     expect(runner.calls.every((c) => c[0] === 'codex')).toBe(true);
     const none = await runInstall({ pathDirs: ['/bin'], home: '/h' }, { yes: true, agents: ['gemini'] }, runner, fs);
     expect(none.lines).toEqual(['No supported agent CLI found (looked for gemini).']);
+  });
+
+  it('runs the detection commands from the home directory', async () => {
+    const { fs } = fakeFs({ '/bin/claude': '', '/bin/codex': '', '/bin/gemini': '' });
+    const runner = fakeRunner(ABSENT_ALL);
+    await runInstall({ pathDirs: ['/bin'], home: '/h' }, { yes: false }, runner, fs);
+    expect(runner.calls).toHaveLength(3);
+    expect(runner.cwds).toEqual(['/h', '/h', '/h']);
+  });
+
+  it('a project-scope cardloom-mcp entry does not count as registered: the user-scope entry is added', async () => {
+    const { fs, files } = fakeFs({ '/bin/claude': '' });
+    const runner = fakeRunner((cmd, args) => (args[1] === 'get' ? ok(fixture('claude-get-local-ours.txt')) : ok()));
+    const res = await runInstall({ pathDirs: ['/bin'], home: '/h' }, { yes: true }, runner, fs);
+    expect(res.exitCode).toBe(0);
+    expect(runner.calls).toContainEqual(['claude', 'mcp', 'add', '--scope', 'user', 'cardloom', '--', 'npx', '-y', 'cardloom-mcp']);
+    expect(files.has('/h/.claude/CLAUDE.md')).toBe(true);
+  });
+
+  it('a cardloom of unknown scope is left unchanged with the scope note and no instructions', async () => {
+    const { fs, files } = fakeFs({ '/bin/claude': '' });
+    const runner = fakeRunner((cmd, args) => (args[1] === 'get' ? ok(fixture('claude-get-no-scope.txt')) : ok()));
+    const res = await runInstall({ pathDirs: ['/bin'], home: '/h' }, { yes: true }, runner, fs);
+    expect(res.exitCode).toBe(0);
+    expect(res.lines.join('\n')).toContain('cardloom found outside user scope; left unchanged');
+    expect(runner.calls).toHaveLength(1);
+    expect(files.has('/h/.claude/CLAUDE.md')).toBe(false);
+  });
+
+  describe('instruction file writes are atomic', () => {
+    const original = '# Mine\nprecious text\n';
+    const codexOurs: Handler = (cmd, args) => (args[1] === 'list' ? ok(fixture('codex-list-ours.json')) : undefined);
+
+    it.each(['write', 'rename'] as const)('a failing %s keeps the original and removes the temp file', async (failOn) => {
+      const { fs, files, writes } = fakeFs({ '/bin/codex': '', '/h/.codex/AGENTS.md': original }, { failOn });
+      const res = await runInstall({ pathDirs: ['/bin'], home: '/h' }, { yes: true }, fakeRunner(codexOurs), fs);
+      expect(res.exitCode).toBe(1);
+      expect(files.get('/h/.codex/AGENTS.md')).toBe(original);
+      expect(files.has('/h/.codex/AGENTS.md.cardloom-tmp')).toBe(false);
+      expect(writes).toEqual([]);
+      expect(res.lines.join('\n')).toMatch(/ENOSPC|EXDEV/);
+    });
+
+    it('a failing write to a new file leaves no file and no temp file', async () => {
+      const { fs, files } = fakeFs({ '/bin/codex': '' }, { failOn: 'write' });
+      const res = await runInstall({ pathDirs: ['/bin'], home: '/h' }, { yes: true }, fakeRunner(codexOurs), fs);
+      expect(res.exitCode).toBe(1);
+      expect([...files.keys()]).toEqual(['/bin/codex']);
+    });
+
+    it('writes through the temp file and renames it into place', async () => {
+      const { fs, files, writes } = fakeFs({ '/bin/codex': '', '/h/.codex/AGENTS.md': original });
+      await runInstall({ pathDirs: ['/bin'], home: '/h' }, { yes: true }, fakeRunner(codexOurs), fs);
+      expect(writes).toEqual(['/h/.codex/AGENTS.md']);
+      expect(files.has('/h/.codex/AGENTS.md.cardloom-tmp')).toBe(false);
+      expect(files.get('/h/.codex/AGENTS.md')?.startsWith(original)).toBe(true);
+    });
+
+    it('a symlinked instructions file keeps being a symlink: the new content lands at the real path', async () => {
+      const { fs, files, writes, links } = fakeFs(
+        { '/bin/codex': '', '/dotfiles/AGENTS.md': original },
+        { links: { '/h/.codex/AGENTS.md': '/dotfiles/AGENTS.md' } },
+      );
+      const res = await runInstall({ pathDirs: ['/bin'], home: '/h' }, { yes: true }, fakeRunner(codexOurs), fs);
+      expect(res.exitCode).toBe(0);
+      expect(writes).toEqual(['/dotfiles/AGENTS.md']);
+      expect(links.get('/h/.codex/AGENTS.md')).toBe('/dotfiles/AGENTS.md');
+      expect(countBlocks(files.get('/dotfiles/AGENTS.md'))).toBe(1);
+      expect(files.get('/dotfiles/AGENTS.md')?.startsWith(original)).toBe(true);
+      expect(files.has('/dotfiles/AGENTS.md.cardloom-tmp')).toBe(false);
+    });
   });
 
   // Review Focus 3
