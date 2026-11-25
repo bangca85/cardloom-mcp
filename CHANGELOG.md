@@ -9,6 +9,10 @@ All notable changes to this project will be documented in this file.
   the agent not to save a learning a human already rejected.
 - `doctor` reports review stats: drafts waiting (and the age of the oldest), cards approved by a human,
   by merge promotion, rejected, and retired before review, plus the human approval rate.
+- New `triage` command (`npx cardloom-mcp triage`, `npm run triage-drafts`): lists each draft with the cards
+  worth comparing it with before you decide (similar title, overlapping facets, the card it supersedes,
+  whether that card was already replaced or rejected). It reports evidence only, never a verdict, and is
+  read-only. `--limit <n>` examines the oldest n drafts; `--json` prints the report as JSON.
 
 ## 1.1.2
 

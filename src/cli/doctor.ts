@@ -64,7 +64,7 @@ function isDirectory(p: string): boolean {
  * When each card file was first added to the store's git history (epoch seconds, earliest wins), from ONE
  * `git log` for the whole store. Empty when the store is not a git repo or git fails: callers fall back to mtime.
  */
-function firstAddedByCard(storePath: string): Map<string, number> {
+export function firstAddedByCard(storePath: string): Map<string, number> {
   const added = new Map<string, number>();
   try {
     const out = execFileSync(

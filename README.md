@@ -407,6 +407,18 @@ card file's modification time.
 `deprecated` is terminal — there's no un-deprecate. To bring a retired idea back, save a new card
 with `supersedes` pointing at the old one and approve it.
 
+### Triaging drafts
+
+`npx cardloom-mcp triage` (or `npm run triage-drafts` from a clone) lists every draft with the cards you may
+want to look at before deciding: same type and a similar title (Jaccard overlap of the title words, 0.5 or
+more) or overlapping facets, plus the card the draft `supersedes`. Each line shows the card's status, title
+similarity, whether the facets overlap and whether it is the same project. It also says when that card was
+already replaced (`superseded by <id>`) or rejected. Drafts with nothing to compare are listed under "No
+related card". The report is evidence only: it gives no verdict and changes nothing, and facet overlap does
+not predict what `verify` will do (verify does not run the conflict check). `--limit <n>` examines only the
+oldest `n` drafts; `--json` prints the report as JSON. It reads the card files, not `index.db`, so it works
+without the server running.
+
 ## Ingesting an existing project
 
 Use the built-in prompt `distill_project_knowledge` to turn a repo's docs, architecture decisions, git
@@ -599,6 +611,7 @@ npm test                # vitest run
 npm run rebuild-index   # rebuild index.db from cards/ + events/
 npm run benchmark       # measure top-1 hit rate + latency against benchmark/queries.yaml
 npm run doctor          # read-only store health check (path, git, card counts by status)
+npm run triage-drafts   # read-only: drafts with the cards to compare them with
 npm run web             # local web viewer (List / Graph view) on http://127.0.0.1:3334
 npm run promote-merged  # list or verify drafts whose source commit was merged
 docker compose build && docker compose run --rm -i cardloom-mcp

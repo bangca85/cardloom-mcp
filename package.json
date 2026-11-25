@@ -17,6 +17,7 @@
     "rebuild-index": "node dist/cli/rebuild-index.js",
     "benchmark": "node dist/cli/benchmark.js",
     "doctor": "node dist/cli/doctor.js",
+    "triage-drafts": "node dist/cli/triage-drafts.js",
     "promote-merged": "node dist/cli/promote-merged.js",
     "test": "vitest run",
     "test:watch": "vitest",
