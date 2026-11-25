@@ -15,7 +15,7 @@ All notable changes to this project will be documented in this file.
   rule it uses is now the exported `cardDriftsFor` in `search-service`, which search calls too, so the two cannot
   disagree; search behaviour is unchanged.
 - `get_card` (and the `knowledge://card/{id}` resource) now returns `source: { repo, commit, approved_at }`: `repo` is
-  `source_repo` (else the first `applies_to` entry), `commit` is the sha in `source_commit` shortened to 7 characters,
+  `source_repo` (else the first `applies_to` entry when it looks like `owner/name`, otherwise `null`), `commit` is the sha in `source_commit` shortened to 7 characters,
   `approved_at` is the date part of `last_verified` (`null` for drafts); each is `null` when unknown. The agent
   instruction block (README and `cardloom-mcp install`) adds one sentence telling the agent to say which project and
   commit a helpful card from another project came from. Search results do not carry `source`: measured with

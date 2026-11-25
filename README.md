@@ -269,7 +269,8 @@ match every word.
 
 Search results stay compact and do not carry `source`: adding repo, commit and approval date to every result
 raised the estimated response size by about 17% at limit 5. `get_card` returns it for the one card you read:
-`source: { repo, commit, approved_at }`. `repo` is the card's `source_repo`, else the first `applies_to` entry;
+`source: { repo, commit, approved_at }`. `repo` is the card's `source_repo`, else the first `applies_to` entry when that looks like `owner/name` (a guess; component
+names such as `api` give `null`);
 `commit` is the sha found in `source_commit`, shortened to 7 characters; `approved_at` is the date part of
 `last_verified` (`null` for a draft). Each field is `null` when it is unknown.
 

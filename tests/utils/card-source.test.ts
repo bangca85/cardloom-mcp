@@ -15,9 +15,19 @@ describe('cardSource', () => {
     ).toEqual({ repo: 'acme/billing', commit: '9f1c2ab', approved_at: '2026-10-03' });
   });
 
-  it('falls back to the first applies_to entry when source_repo is not set', () => {
+  it('falls back to the first applies_to entry when source_repo is not set and that entry looks like owner/name', () => {
     expect(cardSource({ ...base, applies_to: ['acme/payments', 'api'] }).repo).toBe('acme/payments');
-    expect(cardSource({ ...base, source_repo: null, applies_to: ['acme/payments'] }).repo).toBe('acme/payments');
+    expect(cardSource({ ...base, source_repo: null, applies_to: ['acme/billing'] }).repo).toBe('acme/billing');
+  });
+
+  it('has repo null when the first applies_to entry is a component name, not a repo', () => {
+    expect(cardSource({ ...base, applies_to: ['api'] }).repo).toBeNull();
+    expect(cardSource({ ...base, applies_to: ['node', 'acme/billing'] }).repo).toBeNull();
+    expect(cardSource({ ...base, applies_to: ['not a/repo'] }).repo).toBeNull();
+  });
+
+  it('prefers source_repo over applies_to', () => {
+    expect(cardSource({ ...base, source_repo: 'acme/billing', applies_to: ['acme/payments'] }).repo).toBe('acme/billing');
   });
 
   it('has repo null when neither source_repo nor applies_to exists', () => {

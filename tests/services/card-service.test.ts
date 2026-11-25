@@ -621,10 +621,10 @@ describe('renderCard', () => {
     });
   });
 
-  it('falls back to the first applies_to for the repo and has approved_at null on a draft', () => {
+  it('has repo null for a component-name applies_to (not a guess at a repo) and approved_at null on a draft', () => {
     insertRenderableCard(rdb, { id: 'pattern-draft-source', status: 'draft', source_commit: 'working tree' });
 
-    expect(renderCard(rdb, 'pattern-draft-source').source).toEqual({ repo: 'api', commit: null, approved_at: null });
+    expect(renderCard(rdb, 'pattern-draft-source').source).toEqual({ repo: null, commit: null, approved_at: null });
   });
 
   it('never includes a drift flag — get_card/Resource have no query context to compare against', () => {

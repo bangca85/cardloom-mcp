@@ -6,6 +6,7 @@ import matter from 'gray-matter';
 import { updateCardStatus } from './card-service.js';
 import type { PromotionMode } from '../config/env.js';
 import { extractSha } from '../utils/sha.js';
+import { FULL_REPO_RE } from '../utils/repo-name.js';
 
 export { extractSha };
 
@@ -61,7 +62,6 @@ export function defaultRunner(timeoutMs = 60_000): CommandRunner {
   };
 }
 
-const FULL_REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const NAME_RE = /^[A-Za-z0-9_.-]+$/;
 // "abc1234 working tree 2026-10-16" names the BASE the learning sat on, not a commit holding it:
 // the code the card is about was never in that sha, so its merge proves nothing.

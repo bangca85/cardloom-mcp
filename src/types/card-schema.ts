@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ValidationError, type ValidationIssue } from './errors.js';
+import { FULL_REPO_RE } from '../utils/repo-name.js';
 import { PROJECT_KEY_RE, normalizeProjectKey } from '../utils/facets-intersect.js';
 
 export const CARD_TYPES = ['decision', 'pattern', 'snippet', 'gotcha', 'playbook'] as const;
@@ -26,7 +27,7 @@ function baseFields() {
     // "billing-api" can match two local clones (e.g. under work/ and forks/) — so new cards should set it.
     source_repo: z
       .string()
-      .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, 'source_repo must be "owner/name"')
+      .regex(FULL_REPO_RE, 'source_repo must be "owner/name"')
       .optional(),
     // Stable key of the project a `scope: project` card belongs to (e.g. "acme/billing-api"), as stored:
     // already normalised by save_learning_draft. Optional because older cards predate it; never a path.

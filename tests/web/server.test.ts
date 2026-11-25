@@ -345,7 +345,8 @@ Body.
     const later = new Date(Date.now() + 10000);
     fs.utimesSync(file, later, later);
     const res2 = await fetch(`http://127.0.0.1:${port}/api/cards/pattern-web-sourced`);
-    expect(((await res2.json()) as any).source.repo).toBe('api');
+    // applies_to is [api], a component name, not an owner/name repo, so there is no repo to guess.
+    expect(((await res2.json()) as any).source.repo).toBeNull();
   });
 
   it('reconcileSingleCard (GET /api/cards/:id) keeps card_relations in sync without a full reconcileIndex', async () => {
