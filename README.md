@@ -789,6 +789,8 @@ npm run rebuild-index   # rebuild index.db from cards/ + events/
 npm run benchmark       # measure top-1 hit rate + latency against benchmark/queries.yaml
 npm run doctor          # read-only store health check (path, git, card counts by status)
 npm run triage-drafts   # read-only: drafts with the cards to compare them with
+npm run upgrade-check -- --to nextjs@15.0.0   # read-only: cards affected by a version change (needs .knowledge-map.yaml in the cwd)
+npm run report          # read-only: what the store did in the last 7 days (--days <n>, --json)
 npm run web             # local web viewer (List / Graph view) on http://127.0.0.1:3334
 npm run promote-merged  # list or verify drafts whose source commit was merged
 docker compose build && docker compose run --rm -i cardloom-mcp
