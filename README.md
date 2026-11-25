@@ -686,6 +686,19 @@ npm run promote-merged  # list or verify drafts whose source commit was merged
 docker compose build && docker compose run --rm -i cardloom-mcp
 ```
 
+## How is cardloom different from other agent memory tools?
+
+Memory tools such as mem0 and claude-mem let the agent write memories and read them back with no review step.
+cardloom adds one: agents only save drafts, a human approves them, and a default search returns only approved
+cards. Cards are markdown files in a git repository you own, and search runs locally without an LLM call.
+Drafts, retired and restricted cards are filtered out unless you ask for them, and are labelled when returned.
+Old cards are flagged `stale`, and `get_card` reports when a card has been replaced.
+[`tests/integration/trust-guarantees.test.ts`](tests/integration/trust-guarantees.test.ts) checks these
+behaviours on the JSON the server returns. It does not test whether an agent uses them well.
+
+Another tool fits better in two cases. Use mem0 or claude-mem if you want memory with no review step. Use a
+plain `CLAUDE.md` if you have one small repository.
+
 ## Contributing, security, license
 
 - **Contributing:** see [CONTRIBUTING.md](CONTRIBUTING.md). Never commit a real `knowledge-store/`, SQLite

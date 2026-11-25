@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- README: new FAQ "How is cardloom different from other agent memory tools?" and `tests/readme-claims.test.ts`,
+  which fails if the README links no `trust-guarantees` test or contains a forbidden claim pattern.
 - Tests: `tests/integration/trust-guarantees.test.ts` checks, on the JSON `search_knowledge` and `get_card` return, that
   drafts, deprecated, restricted and superseded cards are not returned by default, that drafts are labelled
   `untrusted`, that an old card is flagged `stale`, and that a superseded card reports its replacement. The README
