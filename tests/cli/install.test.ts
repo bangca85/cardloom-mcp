@@ -155,7 +155,10 @@ describe('detectEntry', () => {
     ['gemini-list-ours.txt', 'ours'],
     ['gemini-list-foreign.txt', 'foreign'],
     ['gemini-list-absent.txt', 'absent'],
+    ['gemini-list-extension.txt', 'absent'],
     ['gemini-list-none.txt', 'absent'],
+    // install checks from an untrusted temp folder: a warning comes first and every server is Disabled
+    ['gemini-list-untrusted.txt', 'ours'],
   ])('gemini: %s is %s', async (file, expected) => {
     // The real CLI prints the list to stderr; stdout and stderr are read together.
     const r = fakeRunner(() => ok('', fixture(file)));

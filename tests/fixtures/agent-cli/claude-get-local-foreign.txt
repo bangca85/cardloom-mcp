@@ -1,11 +1,10 @@
 cardloom:
   Scope: Local config (private to you in this project)
-  Status: ✔ Connected
+  Status: ✘ Failed to connect
+  Issue: CONNECTION_CLOSED: Connection closed
   Type: stdio
   Command: node
   Args: /home/example/src/cardloom-fork/dist/index.js
   Environment:
-    KNOWLEDGE_STORE_PATH=/home/example/src/cardloom-fork/knowledge-store
-    INDEX_DB_PATH=/home/example/src/cardloom-fork/.metadata/index.db
 
 To remove this server, run: claude mcp remove cardloom -s local

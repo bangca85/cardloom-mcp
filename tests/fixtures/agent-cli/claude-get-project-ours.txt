@@ -1,10 +1,9 @@
 cardloom:
   Scope: Project config (shared via .mcp.json)
-  Status: ✔ Connected
+  Status: ⏸ Pending approval (run `claude` to approve)
   Type: stdio
   Command: npx
   Args: -y cardloom-mcp
   Environment:
-
 
 To remove this server, run: claude mcp remove cardloom -s project

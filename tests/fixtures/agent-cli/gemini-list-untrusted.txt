@@ -1,0 +1,8 @@
+Warning: MCP servers are configured but disabled because this folder is untrusted.
+User-level servers are also suppressed in untrusted folders to prevent accidental side-effects.
+
+Configured MCP servers:
+
+○ cardloom-dev: node /home/example/src/cardloom-fork/dist/index.js (stdio) - Disabled
+○ example-search: https://search.example.invalid/mcp (http) - Disabled
+○ cardloom: npx -y cardloom-mcp (stdio) - Disabled

@@ -6,5 +6,4 @@ cardloom:
   Args: -y cardloom-mcp
   Environment:
 
-
 To remove this server, run: claude mcp remove cardloom -s local

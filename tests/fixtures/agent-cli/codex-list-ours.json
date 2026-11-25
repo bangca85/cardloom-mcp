@@ -19,16 +19,18 @@
     "auth_status": "unsupported"
   },
   {
-    "name": "example_tool",
+    "name": "cardloom-dev",
     "enabled": true,
     "disabled_reason": null,
     "transport": {
       "type": "stdio",
-      "command": "/home/example/.codex/plugins/example/run",
+      "command": "node",
       "args": [
-        "./server.mjs"
+        "/home/example/src/cardloom-fork/dist/index.js"
       ],
-      "env": null,
+      "env": {
+        "KNOWLEDGE_STORE_PATH": "/home/example/src/cardloom-fork/knowledge-store"
+      },
       "env_vars": [],
       "cwd": null
     },
@@ -37,7 +39,7 @@
     "auth_status": "unsupported"
   },
   {
-    "name": "exampleDeveloperDocs",
+    "name": "example-docs",
     "enabled": true,
     "disabled_reason": null,
     "transport": {
@@ -50,26 +52,6 @@
     },
     "startup_timeout_sec": null,
     "tool_timeout_sec": null,
-    "auth_status": "unsupported"
-  },
-  {
-    "name": "cardloom-dev",
-    "enabled": true,
-    "disabled_reason": null,
-    "transport": {
-      "type": "stdio",
-      "command": "/usr/local/bin/node",
-      "args": [
-        "/home/example/src/cardloom-fork/dist/index.js"
-      ],
-      "env": {
-        "KNOWLEDGE_STORE_PATH": "*****"
-      },
-      "env_vars": [],
-      "cwd": null
-    },
-    "startup_timeout_sec": null,
-    "tool_timeout_sec": null,
-    "auth_status": "unsupported"
+    "auth_status": "unknown"
   }
 ]

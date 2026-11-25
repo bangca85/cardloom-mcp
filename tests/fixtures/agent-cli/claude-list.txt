@@ -1,10 +1,5 @@
-
 Checking MCP server health…
 
-claude.ai Example Docs: https://docs.example.invalid/mcp - ✔ Connected
-claude.ai Example Mail: https://mail.example.invalid/mcp - ! Needs authentication
-plugin:example:tools: /home/example/.claude/plugins/example/scripts/server.cjs  - ✔ Connected
-example-search: https://search.example.invalid/mcp (HTTP) - ✔ Connected
-example-broken: /home/example/bin/example-broken /home/example/work - ✘ Failed to connect
-cardloom-dev: node /home/example/src/cardloom-fork/dist/index.js - ✔ Connected
 cardloom: npx -y cardloom-mcp - ✔ Connected
+cardloom-dev: node /home/example/src/cardloom-fork/dist/index.js - ✘ Failed to connect — CONNECTION_CLOSED: Connection closed
+example-docs: https://docs.example.invalid/mcp (HTTP) - ✘ Failed to connect — ENOTFOUND: getaddrinfo ENOTFOUND docs.example.invalid

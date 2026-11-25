@@ -1,6 +1,7 @@
 cardloom:
   Scope: User config (available in all your projects)
-  Status: ✔ Connected
+  Status: ✘ Failed to connect
+  Issue: CONNECTION_CLOSED: Connection closed
   Type: stdio
   Command: node
   Args: /home/example/src/cardloom-fork/dist/index.js
