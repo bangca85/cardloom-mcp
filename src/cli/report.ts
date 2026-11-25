@@ -8,6 +8,8 @@ import { emptyReview } from '../types/review-stats.js';
 import { computeReview, firstAddedByCard } from './doctor.js';
 
 const DEFAULT_DAYS = 7;
+/** About 100 years; a larger window cannot be turned into a date (`toISOString` throws a RangeError). */
+export const MAX_DAYS = 36_500;
 
 function isDirectory(p: string): boolean {
   try {
@@ -69,7 +71,7 @@ export async function runReport(storePath: string, opts: { days: number; json?: 
   return opts.json ? JSON.stringify(report, null, 2) : formatReport(report);
 }
 
-export const REPORT_USAGE = 'Usage: report [--days <n>] [--json]';
+export const REPORT_USAGE = 'Usage: report [--days <n>] [--json]   (n: 1 to 36500)';
 
 /** `help` is set only when `--help` / `-h` was given: the caller prints the usage and exits 0. */
 export function parseReportArgs(argv: string[]): { days: number; json: boolean; help?: true } | null {
@@ -82,7 +84,7 @@ export function parseReportArgs(argv: string[]): { days: number; json: boolean; 
     else if (a === '--days') {
       const raw = argv[++i];
       const n = raw === undefined || !/^\d+$/.test(raw) ? NaN : Number(raw);
-      if (!Number.isSafeInteger(n) || n < 1) return null;
+      if (!Number.isSafeInteger(n) || n < 1 || n > MAX_DAYS) return null;
       days = n;
     } else return null;
   }

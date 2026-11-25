@@ -42,6 +42,11 @@ describe('parseReportArgs', () => {
       expect(parseReportArgs(argv as string[])).toBeNull();
     },
   );
+  it('accepts --days 36500 and rejects anything larger', () => {
+    expect(parseReportArgs(['--days', '36500'])).toEqual({ days: 36500, json: false });
+    expect(parseReportArgs(['--days', '36501'])).toBeNull();
+    expect(parseReportArgs(['--days', '200000000'])).toBeNull();
+  });
   it('--help and -h set help', () => {
     expect(parseReportArgs(['--help'])?.help).toBe(true);
     expect(parseReportArgs(['-h'])?.help).toBe(true);
