@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## 1.2.0
 
 - New `report` command (`npx cardloom-mcp report [--days 7] [--json]`, `--days` up to 36500; also `npm run report`): confirmed / refuted / neutral counts in the
   window, the five cards confirmed most, cards newly at `needs_review` (total refutes at the threshold and at least
@@ -40,6 +40,9 @@ All notable changes to this project will be documented in this file.
   agent is left unchanged. Instruction files are written through a temp file and a rename, so a failed write
   cannot truncate them, a symlinked file stays a symlink and the file keeps its permissions.
   The block lives in `src/config/agent-instructions.ts`; a test fails if it differs from the README.
+  Run for real against Claude Code 2.1.323, codex-cli 0.169.0 and gemini 0.68.0 in a throwaway home: each stores `npx` with
+  `-y cardloom-mcp` intact, and the detection fixtures are now the CLIs' recorded output (including the warning gemini
+  prints from an untrusted folder, where `install` checks).
 - README: new FAQ "How is cardloom different from other agent memory tools?" and `tests/readme-claims.test.ts`,
   which fails if the README links no `trust-guarantees` test or contains a forbidden claim pattern.
 - Tests: `tests/integration/trust-guarantees.test.ts` checks, on the JSON `search_knowledge` and `get_card` return, that
@@ -70,6 +73,8 @@ All notable changes to this project will be documented in this file.
   whether that card was already replaced or rejected). It reports evidence only, never a verdict, and is
   read-only. `--limit <n>` examines the oldest n drafts; `--json` prints the report as JSON; `--help` / `-h` print
   the usage and exit 0.
+- The web viewer now writes `source_repo` when it re-indexes a card, so a card edited there no longer keeps an empty
+  `source.repo` in `get_card` until the index is rebuilt.
 - `cardloom-mcp doctor --help` (or `-h`) now prints the doctor usage and exits 0 instead of running the check; an unknown
   doctor flag prints the usage to stderr and exits 1.
 
