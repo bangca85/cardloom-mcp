@@ -52,7 +52,9 @@ describe('formatReport', () => {
   it('prints one "No activity" line instead of the counts when nothing happened', () => {
     const out = formatReport(base());
     expect(out).toContain('No activity in the last 7 days.');
-    expect(out).not.toContain('Confirmed');
+    expect(out).not.toContain('Cards that helped most');
+    expect(out).not.toContain('Cards that need a look');
+    expect(out.split('\n').filter((l) => l.startsWith('No activity'))).toHaveLength(1);
     expect(out).toContain('Drafts waiting: 0');
   });
 
